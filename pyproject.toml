@@ -1,0 +1,25 @@
+[project]
+name = "bitget-supermarket-trader"
+version = "0.1.0"
+description = "Bitget US stock perpetual supermarket-style AI trader (crossed margin, 20x, $2/pos)"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+    "pandas>=2.1",
+    "numpy>=1.26",
+]
+
+[project.scripts]
+supermarket = "supermarket.engine:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/supermarket"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

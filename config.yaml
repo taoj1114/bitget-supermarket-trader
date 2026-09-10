@@ -1,0 +1,59 @@
+# bitget-supermarket-trader 配置
+# 密钥一律从 .env 注入 (${VAR} 语法), 不落 yaml
+
+mode: paper                  # paper | live  (live 需 LIVE_CONFIRM=yes + 账户有余额)
+scan_interval: 300           # 主循环间隔(秒)
+max_symbols_per_round: 5     # 每轮 AI 扫描的标的上限
+
+# ---- 下单参数(用户确认的设计) ----
+margin_per_trade_usd: 2.0    # 每仓保证金上限 $2
+leverage: 20                 # 目标杠杆, 执行时取 min(20, 合约maxLever)
+margin_mode: crossed         # 全仓模式(核心: 整体保证金扛亏损单)
+
+# ---- 风控硬约束 ----
+max_notional_mult: 6.0       # 总名义 ≤ 账户净值 × 6  (爆仓线≈-16%)
+max_positions_divisor: 10    # 最大仓数 = max(1, floor(净值/10))
+min_turnover_floor: 5000000  # 24h 成交额 ≥ $5M 才入池
+sl_min_pct: 1.0              # 止损距离下限 %(太近=噪音)
+sl_max_pct: 12.0             # 止损距离上限 %(太远=失控)
+min_rr: 1.5                  # 止盈/止损 距离比下限
+stop_repost_diff_pct: 0.2    # SL/TP 变化>0.2% 才重挂交易所 TPSL
+max_daily_drawdown_pct: 30.0 # 日亏损 ≥30% 净值 → 当日禁开新仓
+max_consecutive_losses: 3    # 连亏3 → 暂停
+pause_after_loss_minutes: 120
+
+# ---- 标的池 ----
+symbol_pool: AUTO            # AUTO=美股全市场按流动性过滤; 或显式 [NVDAUSDT,...]
+hot_symbols: [NVDAUSDT, TSLAUSDT, AAPLUSDT, MSFTUSDT, AMZNUSDT, GOOGLUSDT,
+              METAUSDT, PLTRUSDT, AMDUSDT, COINUSDT, MSTRUSDT, SMCIUSDT,
+              AVGOUSDT, NFLXUSDT, SNDKUSDT, MUUSDT, INTCUSDT, ARMUSDT,
+              ORCLUSDT, HOODUSDT, IRENUSDT, MRVLUSDT, CRCLUSDT, AAOIUSDT]
+
+# ---- AI ----
+llm:
+  base_url: ${LLM_BASE_URL}
+  api_key: ${LLM_API_KEY}
+  model: ${LLM_MODEL_FLASH}
+  temperature: 0.3
+  max_tokens: 1200
+  timeout_s: 45
+  max_retries: 2
+  circuit_failures: 5
+  circuit_pause_s: 300
+
+# ---- Bitget ----
+bitget:
+  base_url: https://api.bitget.com
+  api_key: ${BITGET_API_KEY}
+  secret: ${BITGET_SECRET_KEY}
+  passphrase: ${BITGET_PASSPHRASE}
+  timeout_s: 20
+
+# ---- 落盘 ----
+state_dir: state
+
+# ---- 模拟 ----
+paper:
+  initial_equity: 30.0       # 虚拟账户 $30 (用户充值区间 $20-50 中值)
+  taker_fee: 0.0006
+  maker_fee: 0.0002

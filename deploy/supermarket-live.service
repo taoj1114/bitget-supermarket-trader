@@ -1,0 +1,19 @@
+[Unit]
+Description=Bitget Supermarket Trader (LIVE - real money)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/workspace/bitget-supermarket-trader
+EnvironmentFile=/root/workspace/bitget-supermarket-trader/.env
+# LIVE_CONFIRM=yes 必须在 .env 中显式设置, 否则引擎直接拒绝启动
+ExecStart=/root/workspace/bitget-supermarket-trader/.venv/bin/python -m supermarket.engine --mode live
+Restart=on-failure
+RestartSec=30
+
+# 实盘安全: 仅当用户在 .env 显式设置 LIVE_CONFIRM=yes 且账户已充值才生效
+# 所有订单均带交易所侧 TPSL, 风控硬约束见 docs/DETAILED_DESIGN.md
+
+[Install]
+WantedBy=multi-user.target

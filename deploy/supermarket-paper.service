@@ -1,0 +1,16 @@
+[Unit]
+Description=Bitget Supermarket Trader (paper mode)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/workspace/bitget-supermarket-trader
+EnvironmentFile=/root/workspace/bitget-supermarket-trader/.env
+ExecStart=/root/workspace/bitget-supermarket-trader/.venv/bin/python -m supermarket.engine --mode paper
+Restart=on-failure
+RestartSec=30
+# 安全: 只读/模拟模式, 永不接触真实资金
+
+[Install]
+WantedBy=multi-user.target
