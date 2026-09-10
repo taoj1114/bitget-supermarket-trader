@@ -157,6 +157,7 @@ class RiskEngine:
             "margin": qty * price / lev, "leverage": lev,
             "stop_loss": sl, "take_profit": tp_eff,
             "sl_dist_pct": sl_dist, "tp_dist_pct": tp_dist, "rr": rr,
+            "volume_place": int(contract.get("volumePlace", 4) or 4),  # 数量小数位(下单精度)
         }
         return True, "ok", params
 

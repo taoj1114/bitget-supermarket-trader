@@ -86,9 +86,10 @@ class AIMemory:
     def set_max_pnl(self, symbol: str, max_pnl_pct: float) -> None:
         for d in reversed(self.decisions):
             if d["symbol"] == symbol and d.get("outcome") is None:
-                if max_pnl_pct > float(d.get("max_pnl_pct", 0)):
+                cur = float(d.get("max_pnl_pct", 0))
+                if max_pnl_pct > cur + 0.02:  # 节流: 变化>0.02% 才落盘
                     d["max_pnl_pct"] = round(max_pnl_pct, 4)
-                self._save()
+                    self._save()
                 return
 
     # ---------- 读取 ----------

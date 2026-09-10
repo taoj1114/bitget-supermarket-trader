@@ -31,6 +31,7 @@ class Position:
     close_reason: str = ""
     funding_paid: float = 0.0
     open_fee: float = 0.0
+    volume_place: int = 4
 
     @property
     def notional(self) -> float:
@@ -44,7 +45,8 @@ class Position:
         return cls(**{k: d.get(k, getattr(cls, k, None)) for k in ("symbol", "qty", "avg_entry",
                                                                     "leverage", "sl", "tp",
                                                                     "opened_ts", "close_reason",
-                                                                    "funding_paid", "open_fee")})
+                                                                    "funding_paid", "open_fee",
+                                                                    "volume_place")})
 
 
 def _atomic_write(path: Path, obj: Any) -> None:
@@ -132,14 +134,15 @@ class PaperExecutor:
 
     def open(self, symbol: str, params: dict[str, Any], quote: dict[str, Any]) -> Position:
         qty = float(params["size"])
-        ask = float(quote.get("askPr") or quote.get("lastPr") or 0)
+        ask = float(quote.get("askPr") or 0) or float(quote.get("lastPr") or 0)
         if ask <= 0:
             raise RuntimeError(f"{symbol} 无报价, 无法开仓")
         fee = qty * ask * self.cfg.paper.taker_fee
         self._state["equity"] -= fee
         pos = Position(symbol=symbol, qty=qty, avg_entry=ask, leverage=int(params["leverage"]),
                        sl=float(params["stop_loss"]), tp=float(params["take_profit"]),
-                       opened_ts=time.time())
+                       opened_ts=time.time(),
+                       volume_place=int(params.get("volume_place", 4) or 4))
         pos.open_fee = fee
         self._state["positions"][symbol] = {**pos.to_dict(), "_last_settle": time.time()}
         self._save()
@@ -154,8 +157,9 @@ class PaperExecutor:
             return {"ok": False, "error": "no position"}
         bid = price or float((self._quote_cache.get(symbol) or {}).get("bidPr")
                              or (self._quote_cache.get(symbol) or {}).get("lastPr") or 0)
-        if bid <= 0:
+        if not bid:  # "0" 字符串也防御
             return {"ok": False, "error": "no quote"}
+        bid = float(bid)
         fee = pos.qty * bid * self.cfg.paper.taker_fee
         open_fee = getattr(pos, "open_fee", 0.0) or 0.0
         pnl = (bid - pos.avg_entry) * pos.qty - fee - open_fee - pos.funding_paid
@@ -240,8 +244,13 @@ class RealExecutor:
             log.error("获取持仓失败: %s", str(e)[:120])
         return out
 
+    def _size_str(self, qty: float, volume_place: int = 4) -> str:
+        """按合约 volumePlace 格式化数量(精度不符会被交易所拒单)。"""
+        return f"{qty:.{max(1, volume_place)}f}"
+
     def open(self, symbol: str, params: dict[str, Any], quote: dict[str, Any]) -> Position:
         lev = int(params["leverage"])
+        vp = int(params.get("volume_place", 4) or 4)
         # 1) 杠杆
         try:
             self.bg.set_leverage(symbol, lev, "long")
@@ -259,7 +268,8 @@ class RealExecutor:
             raise RuntimeError(f"TPSL 挂单失败: {str(e)[:80]}")
         # 3) 市价开仓
         try:
-            self.bg.place_order(symbol, "buy", f"{params['size']:.4f}", order_type="market",
+            self.bg.place_order(symbol, "buy", self._size_str(float(params["size"]), vp),
+                                order_type="market",
                                 leverage=lev, margin_mode=self.cfg.margin_mode)
         except Exception as e:
             # 回滚: 撤 TPSL
@@ -289,7 +299,8 @@ class RealExecutor:
         if not pos:
             return {"ok": False, "error": "no position"}
         try:
-            self.bg.place_order(symbol, "sell", f"{pos.qty:.4f}", order_type="market",
+            self.bg.place_order(symbol, "sell", self._size_str(pos.qty, pos.volume_place),
+                                order_type="market",
                                 leverage=pos.leverage, margin_mode=self.cfg.margin_mode,
                                 reduce_only=True)
         except Exception as e:
@@ -314,8 +325,22 @@ class RealExecutor:
         return {"ok": True, "pnl": pnl, "exit": price or pos.avg_entry}
 
     def _estimate_pnl_from_fills(self, pos: Position) -> float:
-        """从成交记录估算(权威对账在 memory/reconcile 层用 fill API)。"""
-        return 0.0
+        """从交易所成交记录(fills API)取真实已实现盈亏。权威对账。"""
+        end = int(time.time() * 1000)
+        start = int((time.time() - 3600) * 1000)
+        try:
+            d = self.bg._request(
+                "GET",
+                f"/api/v2/mix/order/fills?productType=USDT-FUTURES&symbol={pos.symbol}"
+                f"&startTime={start}&endTime={end}",
+            )
+            fills = d.get("fillList", []) if isinstance(d, dict) else (d or [])
+            pnl = sum(float(f.get("profit", 0) or 0) for f in fills
+                      if f.get("tradeSide") == "close")
+            return pnl
+        except Exception as e:
+            log.warning("fills 对账失败 %s: %s", pos.symbol, str(e)[:100])
+            return 0.0
 
     def manage_tpsl(self, symbol: str, sl: float | None, tp: float | None) -> None:
         """差异>阈值才重挂: 撤旧 plan 再挂新。"""

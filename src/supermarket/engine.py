@@ -97,21 +97,31 @@ class SupermarketEngine:
     def _reconcile(self) -> None:
         """本地 open decisions 与实际持仓比对; 交易所/纸面已平的仓 → 补录。"""
         held = {p.symbol for p in self.executor.positions()}
+        # paper 模式优先用执行器记录的真实已平仓(含准确 pnl/exit)
+        paper_closed: dict[str, dict] = {}
+        if self.executor.name == "paper":
+            for c in self.executor.closed_trades():
+                paper_closed.setdefault(c["symbol"], c)  # 保留最近一条
         for d in self.memory.open_decisions():
             sym = d["symbol"]
             if sym in held:
                 continue
             # 已被外部平掉(交易所 SL/TP 或纸面穿价)
-            price = 0.0
-            try:
-                price = float(self.bg.quote(sym).get("lastPr", 0))
-            except Exception:
-                pass
-            entry = float(d.get("entry", 0))
-            if entry > 0 and price > 0:
-                pnl = (price - entry) / entry * float((d.get("params") or {}).get("notional", 0))
+            pc = paper_closed.get(sym)
+            if pc:
+                price = float(pc.get("exit", 0))
+                pnl = float(pc.get("pnl", 0.0))
             else:
-                pnl = 0.0
+                price = 0.0
+                try:
+                    price = float(self.bg.quote(sym).get("lastPr", 0))
+                except Exception:
+                    pass
+                entry = float(d.get("entry", 0))
+                if entry > 0 and price > 0:
+                    pnl = (price - entry) / entry * float((d.get("params") or {}).get("notional", 0))
+                else:
+                    pnl = 0.0
             self.memory.close_decision(sym, price, pnl, "EXCHANGE_SLTP(对账补录)",
                                        max_pnl_pct=float(d.get("max_pnl_pct", 0)))
             self.risk.on_close(pnl)
@@ -288,6 +298,19 @@ class SupermarketEngine:
         self._load_contracts()
         account = self._account()
         self.risk.refresh_day(float(account.get("equity", 0)))
+        self._reconcile()  # 启动残留清理
+        # 行情驱动(paper 关键): 先给持仓喂最新报价, 再 tick 触发交易所侧 TPSL/资金费率结算。
+        # (此前引擎从不调 tick → paper 的 SL/TP 穿价与 funding 结算从未发生 — 已修复)
+        try:
+            for p in self.executor.positions():
+                q = self.bg.quote(p.symbol)
+                if q:
+                    self.executor.set_quote(p.symbol, q)
+            if hasattr(self.executor, "tick"):
+                self.executor.tick()
+        except Exception as e:
+            log.warning("行情驱动 tick 异常: %s", str(e)[:100])
+        # tick 平掉的仓立即补录(不拖到下一轮): 防 crash 丢失 + 复盘即时
         self._reconcile()
         self._manage_positions(account)
         self._scan(account)
