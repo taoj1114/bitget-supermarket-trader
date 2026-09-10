@@ -17,7 +17,10 @@ def _req(url: str, key: str, payload: dict | None = None, timeout: int = 45):
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode() if payload else None,
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}",
+                 # Cloudflare WAF 拦默认 UA(实测 403 code 1010); Console Go 需 session 头
+                 "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) ai-trader/0.1",
+                 "x-opencode-session": "llm-check"},
         method="POST" if payload else "GET",
     )
     try:

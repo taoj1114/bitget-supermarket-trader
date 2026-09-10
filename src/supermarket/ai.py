@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -221,7 +222,10 @@ class OpenCodeProvider(LLMProvider):
             "max_tokens": max_tokens or self.max_tokens,
             "stream": False,
         }
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json",
+                   "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) ai-trader/0.1",
+                   # Console Go 提供商要求: 缺此头报 MissingSessionID(实测 2026-09)
+                   "x-opencode-session": str(uuid.uuid4())}
         last_err: Exception | None = None
         for attempt in range(self.max_retries + 1):
             if attempt > 0:
