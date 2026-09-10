@@ -34,8 +34,8 @@ def test_parse_truncated():
 
 
 def test_parse_garbage_action():
-    d = parse_open_decision('{"action":"SELL","stop_loss":100,"take_profit":110,"reason":"x"}')
-    assert d.action == "HOLD"  # 只做多: SELL 归一为 HOLD
+    d = parse_open_decision('{"action":"FOO","stop_loss":100,"take_profit":110,"reason":"x"}')
+    assert d.action == "HOLD"  # 非法动作归一为 HOLD
 
 
 def test_parse_empty():
@@ -49,6 +49,13 @@ def test_parse_manage():
     m2 = parse_manage_decision('{"action":"ADJUST","stop_loss":201.0,"take_profit":null,"reason":"保本"}')
     assert m2.action == "ADJUST"
     assert m2.stop_loss == 201.0
+
+
+def test_parse_sell():
+    d = parse_open_decision('{"action":"SELL","stop_loss":230.0,"take_profit":210.0,"reason":"日线转空"}')
+    assert d.is_short
+    assert d.stop_loss == 230.0
+    assert d.take_profit == 210.0
 
 
 def test_fallback_provider():

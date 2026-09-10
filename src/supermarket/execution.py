@@ -32,6 +32,7 @@ class Position:
     funding_paid: float = 0.0
     open_fee: float = 0.0
     volume_place: int = 4
+    direction: str = "long"   # long / short
 
     @property
     def notional(self) -> float:
@@ -46,7 +47,7 @@ class Position:
                                                                     "leverage", "sl", "tp",
                                                                     "opened_ts", "close_reason",
                                                                     "funding_paid", "open_fee",
-                                                                    "volume_place")})
+                                                                    "volume_place", "direction")})
 
 
 def _atomic_write(path: Path, obj: Any) -> None:
@@ -89,8 +90,11 @@ class PaperExecutor:
         eq = float(self._state["equity"])
         pos = self._positions()
         notional = sum(p.notional for p in pos)
+        longs = sum(1 for p in pos if p.direction == "long")
+        shorts = sum(1 for p in pos if p.direction == "short")
         return {"equity": eq, "available": eq - sum(p.notional / p.leverage for p in pos),
-                "notional": notional, "position_count": len(pos), "day_pnl": 0.0,
+                "notional": notional, "position_count": len(pos), "long_count": longs,
+                "short_count": shorts, "day_pnl": 0.0,
                 "mode": "paper"}
 
     def positions(self) -> list[Position]:
@@ -100,7 +104,7 @@ class PaperExecutor:
         self._quote_cache[symbol] = quote
 
     def tick(self) -> None:
-        """按最新 quote 计算浮盈 + 触发 TPSL + 资金费率结算。"""
+        """按最新 quote 计算浮盈 + 触发 TPSL(方向镜像) + 资金费率结算。"""
         for sym in list(self._state["positions"].keys()):
             q = self._quote_cache.get(sym)
             if not q:
@@ -109,13 +113,21 @@ class PaperExecutor:
             pos = self._positions_map().get(sym)
             if not pos or last <= 0:
                 continue
-            # TPSL 穿价(保守: 止损用触发价, 止盈用触发价)
-            if pos.sl and last <= pos.sl:
-                self.close(sym, reason="SL_EXCHANGE", price=pos.sl)
-                continue
-            if pos.tp and last >= pos.tp:
-                self.close(sym, reason="TP_EXCHANGE", price=pos.tp)
-                continue
+            # TPSL 穿价(方向镜像; 保守: 均以触发价成交)
+            if pos.direction == "long":
+                if pos.sl and last <= pos.sl:
+                    self.close(sym, reason="SL_EXCHANGE", price=pos.sl)
+                    continue
+                if pos.tp and last >= pos.tp:
+                    self.close(sym, reason="TP_EXCHANGE", price=pos.tp)
+                    continue
+            else:
+                if pos.sl and last >= pos.sl:
+                    self.close(sym, reason="SL_EXCHANGE", price=pos.sl)
+                    continue
+                if pos.tp and last <= pos.tp:
+                    self.close(sym, reason="TP_EXCHANGE", price=pos.tp)
+                    continue
             # 资金费率结算(8h)
             self._settle_funding(pos, q)
         self._save()
@@ -125,7 +137,8 @@ class PaperExecutor:
         last = self._state["positions"].get(pos.symbol, {}).get("_last_settle", pos.opened_ts)
         while now - last >= 8 * 3600:
             rate = float(quote.get("fundingRate") or 0)
-            pay = pos.notional * rate
+            # 多头付正费率, 空头收正费率(方向镜像)
+            pay = pos.notional * rate * (1 if pos.direction == "long" else -1)
             pos.funding_paid += pay
             self._state["equity"] -= pay
             last += 8 * 3600
@@ -134,20 +147,27 @@ class PaperExecutor:
 
     def open(self, symbol: str, params: dict[str, Any], quote: dict[str, Any]) -> Position:
         qty = float(params["size"])
-        ask = float(quote.get("askPr") or 0) or float(quote.get("lastPr") or 0)
-        if ask <= 0:
+        direction = str(params.get("direction", "long"))
+        # 多头以 ask 成交(买入), 空头以 bid 成交(卖出)
+        if direction == "long":
+            ask = float(quote.get("askPr") or 0) or float(quote.get("lastPr") or 0)
+            fill = ask
+        else:
+            fill = float(quote.get("bidPr") or 0) or float(quote.get("lastPr") or 0)
+        if fill <= 0:
             raise RuntimeError(f"{symbol} 无报价, 无法开仓")
-        fee = qty * ask * self.cfg.paper.taker_fee
+        fee = qty * fill * self.cfg.paper.taker_fee
         self._state["equity"] -= fee
-        pos = Position(symbol=symbol, qty=qty, avg_entry=ask, leverage=int(params["leverage"]),
+        pos = Position(symbol=symbol, qty=qty, avg_entry=fill, leverage=int(params["leverage"]),
                        sl=float(params["stop_loss"]), tp=float(params["take_profit"]),
                        opened_ts=time.time(),
-                       volume_place=int(params.get("volume_place", 4) or 4))
+                       volume_place=int(params.get("volume_place", 4) or 4),
+                       direction=direction)
         pos.open_fee = fee
         self._state["positions"][symbol] = {**pos.to_dict(), "_last_settle": time.time()}
         self._save()
-        log.info("[paper] 开仓 %s qty=%.4f @$%.2f 名义$%.2f 手续费$%.4f",
-                 symbol, qty, ask, qty * ask, fee)
+        log.info("[paper] 开仓 %s %s qty=%.4f @$%.2f 名义$%.2f 手续费$%.4f",
+                 symbol, direction, qty, fill, qty * fill, fee)
         return pos
 
     def close(self, symbol: str, reason: str = "AI_CLOSE", price: float | None = None) -> dict[str, Any]:
@@ -155,25 +175,34 @@ class PaperExecutor:
         pos = pmap.get(symbol)
         if not pos:
             return {"ok": False, "error": "no position"}
-        bid = price or float((self._quote_cache.get(symbol) or {}).get("bidPr")
-                             or (self._quote_cache.get(symbol) or {}).get("lastPr") or 0)
-        if not bid:  # "0" 字符串也防御
+        q = self._quote_cache.get(symbol) or {}
+        # 多头平仓以 bid 成交(卖出), 空头平仓以 ask 成交(买回)
+        if pos.direction == "long":
+            bid = price or float(q.get("bidPr") or 0) or float(q.get("lastPr") or 0)
+            fill = float(bid)
+        else:
+            ask = price or float(q.get("askPr") or 0) or float(q.get("lastPr") or 0)
+            fill = float(ask)
+        if not fill:
             return {"ok": False, "error": "no quote"}
-        bid = float(bid)
-        fee = pos.qty * bid * self.cfg.paper.taker_fee
+        fee = pos.qty * fill * self.cfg.paper.taker_fee
         open_fee = getattr(pos, "open_fee", 0.0) or 0.0
-        pnl = (bid - pos.avg_entry) * pos.qty - fee - open_fee - pos.funding_paid
-        self._state["equity"] += (bid - pos.avg_entry) * pos.qty - fee
+        if pos.direction == "long":
+            pnl = (fill - pos.avg_entry) * pos.qty - fee - open_fee - pos.funding_paid
+        else:
+            pnl = (pos.avg_entry - fill) * pos.qty - fee - open_fee - pos.funding_paid
+        self._state["equity"] += pnl + fee  # equity 已含 open_fee/funding 扣减, 只补毛利
         self._state["realized_pnl"] += pnl
         self._state["positions"].pop(symbol, None)
         self._state["closed"].append({
-            "symbol": symbol, "qty": pos.qty, "entry": pos.avg_entry, "exit": bid,
+            "symbol": symbol, "qty": pos.qty, "entry": pos.avg_entry, "exit": fill,
             "pnl": pnl, "reason": reason, "ts": time.time(),
-            "lev": pos.leverage, "sl": pos.sl, "tp": pos.tp,
+            "lev": pos.leverage, "sl": pos.sl, "tp": pos.tp, "direction": pos.direction,
         })
         self._save()
-        log.info("[paper] 平仓 %s @$%.2f pnl $%+.4f (%s)", symbol, bid, pnl, reason)
-        return {"ok": True, "pnl": pnl, "exit": bid}
+        log.info("[paper] 平仓 %s (%s) @$%.2f pnl $%+.4f (%s)",
+                 symbol, pos.direction, fill, pnl, reason)
+        return {"ok": True, "pnl": pnl, "exit": fill}
 
     def manage_tpsl(self, symbol: str, sl: float | None, tp: float | None) -> None:
         pos = self._positions_map().get(symbol)
@@ -224,14 +253,20 @@ class RealExecutor:
         avail = float(acc.get("available", 0) or 0)
         pos = self.positions()
         notional = sum(p.notional for p in pos)
+        longs = sum(1 for p in pos if p.direction == "long")
+        shorts = sum(1 for p in pos if p.direction == "short")
         return {"equity": eq, "available": avail, "notional": notional,
-                "position_count": len(pos), "day_pnl": 0.0, "mode": "real"}
+                "position_count": len(pos), "long_count": longs, "short_count": shorts,
+                "day_pnl": 0.0, "mode": "real"}
 
     def positions(self) -> list[Position]:
         out = []
         try:
             for r in self.bg.positions():
-                if float(r.get("holdVol", 0) or 0) <= 0 or r.get("holdSide") != "long":
+                if float(r.get("holdVol", 0) or 0) <= 0:
+                    continue
+                hold_side = r.get("holdSide", "long")
+                if hold_side not in ("long", "short"):
                     continue
                 out.append(Position(
                     symbol=r["symbol"],
@@ -239,6 +274,7 @@ class RealExecutor:
                     avg_entry=float(r["avgEntryPrice"]),
                     leverage=int(float(r.get("leverage", self.cfg.leverage) or self.cfg.leverage)),
                     opened_ts=float(r.get("openTimeAvg", 0) or 0) / 1000,
+                    direction=hold_side,
                 ))
         except Exception as e:
             log.error("获取持仓失败: %s", str(e)[:120])
@@ -251,26 +287,32 @@ class RealExecutor:
     def open(self, symbol: str, params: dict[str, Any], quote: dict[str, Any]) -> Position:
         lev = int(params["leverage"])
         vp = int(params.get("volume_place", 4) or 4)
+        direction = str(params.get("direction", "long"))
+        side = "buy" if direction == "long" else "sell"
+        hold_side = direction  # long/short 的仓位置
         # 1) 杠杆
         try:
-            self.bg.set_leverage(symbol, lev, "long")
+            self.bg.set_leverage(symbol, lev, hold_side)
         except Exception as e:
             raise RuntimeError(f"set_leverage 失败: {str(e)[:80]}")
-        # 2) 先挂 TPSL
+        # 2) 先挂 TPSL(方向对应 holdSide)
         tpsl_ids = []
         try:
-            sl = self.bg.place_tpsl(symbol, "pos_loss", f"{float(params['stop_loss']):.4f}")
+            sl = self.bg.place_tpsl(symbol, "pos_loss", f"{float(params['stop_loss']):.4f}",
+                                    hold_side=hold_side)
             tpsl_ids.append(sl.get("orderId", ""))
-            tp = self.bg.place_tpsl(symbol, "pos_profit", f"{float(params['take_profit']):.4f}")
+            tp = self.bg.place_tpsl(symbol, "pos_profit", f"{float(params['take_profit']):.4f}",
+                                    hold_side=hold_side)
             tpsl_ids.append(tp.get("orderId", ""))
         except Exception as e:
             log.error("挂 TPSL 失败 %s: %s", symbol, str(e)[:120])
             raise RuntimeError(f"TPSL 挂单失败: {str(e)[:80]}")
-        # 3) 市价开仓
+        # 3) 市价开仓(方向对应 side/posSide)
         try:
-            self.bg.place_order(symbol, "buy", self._size_str(float(params["size"]), vp),
+            self.bg.place_order(symbol, side, self._size_str(float(params["size"]), vp),
                                 order_type="market",
-                                leverage=lev, margin_mode=self.cfg.margin_mode)
+                                leverage=lev, margin_mode=self.cfg.margin_mode,
+                                reduce_only=False)
         except Exception as e:
             # 回滚: 撤 TPSL
             for oid in tpsl_ids:
@@ -286,20 +328,21 @@ class RealExecutor:
         if pos is None:
             raise RuntimeError("开仓后回读不到持仓, 立即人工核对")
         self._state["orders"].append({
-            "ts": time.time(), "symbol": symbol, "side": "buy", "qty": params["size"],
+            "ts": time.time(), "symbol": symbol, "side": side, "qty": params["size"],
             "entry": pos.avg_entry, "sl": params["stop_loss"], "tp": params["take_profit"],
-            "tpsl_ids": tpsl_ids, "oid": pos.avg_entry,
+            "tpsl_ids": tpsl_ids, "direction": direction, "oid": pos.avg_entry,
         })
         self._save()
-        log.info("[LIVE] 开仓 %s @$%.4f qty=%.4f", symbol, pos.avg_entry, pos.qty)
+        log.info("[LIVE] 开仓 %s %s @$%.4f qty=%.4f", symbol, direction, pos.avg_entry, pos.qty)
         return pos
 
     def close(self, symbol: str, reason: str = "AI_CLOSE", price: float | None = None) -> dict[str, Any]:
         pos = next((p for p in self.positions() if p.symbol == symbol), None)
         if not pos:
             return {"ok": False, "error": "no position"}
+        side = "sell" if pos.direction == "long" else "buy"  # 平仓方向镜像
         try:
-            self.bg.place_order(symbol, "sell", self._size_str(pos.qty, pos.volume_place),
+            self.bg.place_order(symbol, side, self._size_str(pos.qty, pos.volume_place),
                                 order_type="market",
                                 leverage=pos.leverage, margin_mode=self.cfg.margin_mode,
                                 reduce_only=True)

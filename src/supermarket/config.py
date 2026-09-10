@@ -89,6 +89,7 @@ class Config:
     margin_mode: str = "crossed"
     max_notional_mult: float = 6.0
     max_positions_divisor: int = 10
+    max_short_positions: int = 2
     min_turnover_floor: float = 5_000_000.0
     sl_min_pct: float = 1.0
     sl_max_pct: float = 12.0
@@ -128,6 +129,7 @@ class Config:
             margin_mode=str(g("margin_mode", "crossed")).lower(),
             max_notional_mult=float(g("max_notional_mult", 6.0)),
             max_positions_divisor=int(g("max_positions_divisor", 10)),
+            max_short_positions=int(g("max_short_positions", 2)),
             min_turnover_floor=float(g("min_turnover_floor", 5_000_000.0)),
             sl_min_pct=float(g("sl_min_pct", 1.0)),
             sl_max_pct=float(g("sl_max_pct", 12.0)),

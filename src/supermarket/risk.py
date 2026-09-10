@@ -85,15 +85,21 @@ class RiskEngine:
         return (base - equity) / base * 100 >= self.cfg.max_daily_drawdown_pct
 
     # ---------- 开仓校验 ----------
-    def validate_daily_direction(self, daily_regime: str, daily_adx: float) -> tuple[bool, str]:
-        """日线方向门控(用户铁律: 永不逆势): 日线明确向下(ADX≥25)→ 禁做多。"""
-        if daily_regime == "trend_down" and daily_adx >= 25:
+    def validate_daily_direction(self, daily_regime: str, daily_adx: float,
+                                 side: str = "long") -> tuple[bool, str]:
+        """日线方向门控(用户铁律: 永不逆势):
+        多头: 日线明确向下(ADX≥25)→ 禁做多; 空头: 日线明确向上(ADX≥25)→ 禁做空。"""
+        if side == "long" and daily_regime == "trend_down" and daily_adx >= 25:
             return False, f"日线逆势: regime={daily_regime} ADX={daily_adx:.1f}≥25, 禁做多(永不逆势)"
+        if side == "short" and daily_regime == "trend_up" and daily_adx >= 25:
+            return False, f"日线逆势: regime={daily_regime} ADX={daily_adx:.1f}≥25, 禁做空(永不逆势)"
         return True, "ok"
 
-    def validate_open(self, symbol: str, price: float, sl: float | None, tp: float | None,
-                      contract: dict[str, Any], account: dict[str, Any], n_positions: int) -> tuple[bool, str, dict]:
-        """返回 (ok, reason, 下单参数)。只做多。"""
+    def validate_open(self, symbol: str, price: float, side: str,
+                      sl: float | None, tp: float | None,
+                      contract: dict[str, Any], account: dict[str, Any],
+                      long_count: int, short_count: int) -> tuple[bool, str, dict]:
+        """返回 (ok, reason, 下单参数)。side: long(做多) / short(做空)。"""
         self.rejects.clear()
         equity = float(account.get("equity", 0))
         notional_now = float(account.get("notional", 0))
@@ -116,31 +122,42 @@ class RiskEngine:
         if notional <= 0:
             return False, f"名义≤0, 无法开仓({symbol})", {}
 
-        # 名义总量
+        # 名义总量(多+空合计)
         if notional_now > 0 and (notional_now + notional) > equity * self.cfg.max_notional_mult:
             cap = equity * self.cfg.max_notional_mult - notional_now
             return False, (f"名义超限: 已有${notional_now:.0f}+新${notional:.0f}"
                            f">净值×{self.cfg.max_notional_mult:.0f}=${equity * self.cfg.max_notional_mult:.0f}, 剩余额度${cap:.0f}"), {}
-        # 仓数
-        max_pos = max(1, int(equity // self.cfg.max_positions_divisor))
-        if n_positions >= max_pos:
-            return False, f"仓数已达上限 {max_pos}(净值${equity:.0f}/{self.cfg.max_positions_divisor})", {}
 
-        # SL/TP 距离与盈亏比
+        # 仓数(多头/空头独立上限)
+        if side == "long":
+            max_pos = max(1, int(equity // self.cfg.max_positions_divisor))
+            if long_count >= max_pos:
+                return False, f"多头仓数已达上限 {max_pos}(净值${equity:.0f}/{self.cfg.max_positions_divisor})", {}
+        else:
+            if short_count >= self.cfg.max_short_positions:
+                return False, f"空头仓数已达上限 {self.cfg.max_short_positions}(用户设定: 对冲用一两个)", {}
+
+        # SL/TP 距离与盈亏比(方向镜像)
         if sl is None or sl <= 0:
             return False, "AI未提供止损价, 拒绝开仓(止损是超市底线)", {}
-        if not (sl < price):
-            return False, f"止损价应低于买入价(BUY仓): sl={sl} price={price}", {}
-        sl_dist = (price - sl) / price * 100
+        if side == "long":
+            if not (sl < price):
+                return False, f"止损价应低于买入价(多头): sl={sl} price={price}", {}
+            sl_dist = (price - sl) / price * 100
+            tp_eff = tp if (tp and tp > price) else None
+        else:
+            if not (sl > price):
+                return False, f"止损价应高于卖出价(空头): sl={sl} price={price}", {}
+            sl_dist = (sl - price) / price * 100
+            tp_eff = tp if (tp and 0 < tp < price) else None
         if sl_dist < self.cfg.sl_min_pct:
             return False, f"止损过近({sl_dist:.2f}% < {self.cfg.sl_min_pct}%), 噪音止损, 拒绝", {}
         if sl_dist > self.cfg.sl_max_pct:
             return False, f"止损过远({sl_dist:.2f}% > {self.cfg.sl_max_pct}%), 失控, 拒绝", {}
 
-        tp_eff = tp if (tp and tp > price) else None
         if tp_eff is None:
             return False, "AI未提供止盈价, 拒绝开仓(超市要快进快出)", {}
-        tp_dist = (tp_eff - price) / price * 100
+        tp_dist = abs(tp_eff - price) / price * 100
         rr = tp_dist / sl_dist if sl_dist > 0 else 0
         if rr < self.cfg.min_rr:
             return False, f"盈亏比不足: TP{tp_dist:.1f}%/SL{sl_dist:.1f}% = {rr:.2f} < {self.cfg.min_rr}, 拒绝", {}
@@ -155,6 +172,7 @@ class RiskEngine:
         params = {
             "symbol": symbol, "size": qty, "notional": qty * price,
             "margin": qty * price / lev, "leverage": lev,
+            "direction": side,
             "stop_loss": sl, "take_profit": tp_eff,
             "sl_dist_pct": sl_dist, "tp_dist_pct": tp_dist, "rr": rr,
             "volume_place": int(contract.get("volumePlace", 4) or 4),  # 数量小数位(下单精度)

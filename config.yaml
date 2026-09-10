@@ -11,8 +11,9 @@ leverage: 20                 # 目标杠杆, 执行时取 min(20, 合约maxLever
 margin_mode: crossed         # 全仓模式(核心: 整体保证金扛亏损单)
 
 # ---- 风控硬约束 ----
-max_notional_mult: 6.0       # 总名义 ≤ 账户净值 × 6  (爆仓线≈-16%)
-max_positions_divisor: 10    # 最大仓数 = max(1, floor(净值/10))
+max_notional_mult: 6.0       # 总名义(多+空合计) ≤ 账户净值 × 6  (爆仓线≈-16%)
+max_positions_divisor: 10    # 多头最大仓数 = max(1, floor(净值/10))
+max_short_positions: 2       # 空头最大仓数(用户: 只给一两个, 提供对冲)
 min_turnover_floor: 5000000  # 24h 成交额 ≥ $5M 才入池
 sl_min_pct: 1.0              # 止损距离下限 %(太近=噪音)
 sl_max_pct: 12.0             # 止损距离上限 %(太远=失控)

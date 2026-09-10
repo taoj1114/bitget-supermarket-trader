@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 # ---------- 决策数据结构 ----------
 @dataclass
 class OpenDecision:
-    action: str = "HOLD"          # BUY / HOLD
+    action: str = "HOLD"          # BUY / SELL / HOLD
     stop_loss: float | None = None
     take_profit: float | None = None
     reason: str = ""
@@ -34,6 +34,10 @@ class OpenDecision:
     @property
     def is_buy(self) -> bool:
         return self.action == "BUY"
+
+    @property
+    def is_short(self) -> bool:
+        return self.action == "SELL"
 
 
 @dataclass
@@ -100,7 +104,7 @@ def parse_open_decision(raw: str) -> OpenDecision:
                     "reason": rs.group(1) if rs else (text[:80] if text else ""),
                 }
     action = str(obj.get("action", "HOLD")).upper().strip()
-    if action not in ("BUY", "HOLD"):
+    if action not in ("BUY", "SELL", "HOLD"):
         action = "HOLD"
     try:
         sl = float(obj.get("stop_loss")) if obj.get("stop_loss") not in (None, "") else None

@@ -89,3 +89,77 @@ def test_reload_persist():
         ex2 = PaperExecutor(cfg, Path(td))
         assert "NVDAUSDT" in ex2._state["positions"]
         assert ex2._state["equity"] < 30.0
+
+
+# ---------- 空头镜像 ----------
+def test_short_open_fills_at_bid():
+    cfg = Config(); cfg.paper.initial_equity = 30.0
+    with tempfile.TemporaryDirectory() as td:
+        ex = PaperExecutor(cfg, Path(td))
+        params = {"size": 0.2, "leverage": 20, "stop_loss": 205.0, "take_profit": 190.0,
+                  "direction": "short"}
+        pos = ex.open("NVDAUSDT", params, {"askPr": "200.10", "bidPr": "199.90",
+                                           "lastPr": "200.0", "fundingRate": "0"})
+        assert pos.direction == "short"
+        assert pos.avg_entry == 199.90  # 空头以 bid 成交
+
+
+def test_short_tpsl_trigger():
+    """空头 SL 在价格上方触发。"""
+    cfg = Config(); cfg.paper.initial_equity = 30.0
+    with tempfile.TemporaryDirectory() as td:
+        ex = PaperExecutor(cfg, Path(td))
+        params = {"size": 0.2, "leverage": 20, "stop_loss": 205.0, "take_profit": 190.0,
+                  "direction": "short"}
+        ex.open("NVDAUSDT", params, {"askPr": "200.1", "bidPr": "199.9", "lastPr": "200.0",
+                                     "fundingRate": "0"})
+        # 价格涨到 206 → 空头止损触发 @205
+        ex.set_quote("NVDAUSDT", {"lastPr": "206.0", "bidPr": "205.9", "askPr": "206.1",
+                                  "fundingRate": "0"})
+        ex.tick()
+        assert "NVDAUSDT" not in ex._state["positions"]
+        trade = ex.closed_trades()[-1]
+        assert trade["reason"] == "SL_EXCHANGE"
+        assert trade["exit"] == 205.0
+        assert trade["direction"] == "short"
+        expect = (199.9 - 205.0) * 0.2 - 0.2 * 199.9 * 0.0006 - 0.2 * 205.0 * 0.0006
+        assert abs(trade["pnl"] - expect) < 1e-6
+
+
+def test_short_ai_close_positive_pnl():
+    """空头价格下跌 → 盈利兑现。"""
+    cfg = Config(); cfg.paper.initial_equity = 30.0
+    with tempfile.TemporaryDirectory() as td:
+        ex = PaperExecutor(cfg, Path(td))
+        params = {"size": 0.2, "leverage": 20, "stop_loss": 210.0, "take_profit": 180.0,
+                  "direction": "short"}
+        ex.open("NVDAUSDT", params, {"askPr": "200.1", "bidPr": "199.9", "lastPr": "200.0",
+                                     "fundingRate": "0"})
+        # 多头平仓以 ask 成交(空头买回)
+        ex.set_quote("NVDAUSDT", {"lastPr": "197.0", "bidPr": "196.9", "askPr": "197.1",
+                                  "fundingRate": "0"})
+        res = ex.close("NVDAUSDT", reason="AI_CLOSE")
+        assert res["ok"]
+        trade = ex.closed_trades()[-1]
+        assert trade["reason"] == "AI_CLOSE"
+        expect = (199.9 - 197.1) * 0.2 - 0.2 * 199.9 * 0.0006 - 0.2 * 197.1 * 0.0006
+        assert abs(trade["pnl"] - expect) < 1e-6
+
+
+def test_short_funding_received():
+    """正费率时空头收取资金(镜像: 多头付费)。"""
+    cfg = Config(); cfg.paper.initial_equity = 30.0
+    with tempfile.TemporaryDirectory() as td:
+        ex = PaperExecutor(cfg, Path(td))
+        params = {"size": 0.2, "leverage": 20, "stop_loss": 210.0, "take_profit": 180.0,
+                  "direction": "short"}
+        ex.open("NVDAUSDT", params, {"askPr": "200.1", "bidPr": "199.9", "lastPr": "200.0",
+                                     "fundingRate": "0.0001"})
+        import time
+        ex._state["positions"]["NVDAUSDT"]["_last_settle"] = time.time() - 9 * 3600
+        ex.set_quote("NVDAUSDT", {"lastPr": "200.5", "bidPr": "200.4", "askPr": "200.6",
+                                  "fundingRate": "0.0001"})
+        ex.tick()
+        # 空头收 40×0.0001 = +$0.004; 开仓手续费 0.2×199.9×0.0006
+        fee = 0.2 * 199.9 * 0.0006
+        assert abs(ex._state["equity"] - (30.0 + 0.004 - fee)) < 1e-5

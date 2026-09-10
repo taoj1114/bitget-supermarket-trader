@@ -145,12 +145,17 @@ class SupermarketEngine:
                 last = float(quote.get("lastPr", 0) or 0)
                 if last <= 0:
                     return None
+                # 浮盈亏按方向计算(空单价格下跌=盈利)
+                if pos.direction == "short":
+                    pnl_pct = (entry - last) / entry * 100 if entry else 0.0
+                else:
+                    pnl_pct = (last - entry) / entry * 100 if entry else 0.0
                 inp = self.market.build_input(sym, quote, account,
                                               lessons=lessons, manage=True)
                 decision = self.provider.decide_manage(
                     SYSTEM_MANAGE, build_manage_prompt(inp, {
                         "symbol": sym, "avg_entry": entry, "notional": pos.notional,
-                        "unrealized_pnl_pct": (last - entry) / entry * 100 if entry else 0,
+                        "unrealized_pnl_pct": pnl_pct, "direction": pos.direction,
                     }))
                 return (pos, quote, decision)
             except Exception as e:
@@ -172,7 +177,11 @@ class SupermarketEngine:
             last = float(quote.get("lastPr", 0) or 0)
             entry = pos.avg_entry
             if entry > 0:
-                self.memory.set_max_pnl(sym, (last - entry) / entry * 100)
+                # 浮盈按方向: 用于 T+N 评估(max_pnl 永远是盈利方向)
+                if pos.direction == "short":
+                    self.memory.set_max_pnl(sym, (entry - last) / entry * 100)
+                else:
+                    self.memory.set_max_pnl(sym, (last - entry) / entry * 100)
             log.info("管仓 %s → %s | %s", sym, decision.action, decision.reason[:60])
             if decision.is_close:
                 res = self.executor.close(sym, reason="AI_CLOSE")
@@ -248,10 +257,11 @@ class SupermarketEngine:
         # 串行执行阶段(风控校验+开仓, 防并发超仓)
         for sym, quote, inp, decision in results:
             self.executor.set_quote(sym, quote)
-            if decision.is_buy:
-                # 日线方向门控(代码即法律): 日线逆势禁做多
+            if decision.is_buy or decision.is_short:
+                side = "long" if decision.is_buy else "short"
+                # 日线方向门控(代码即法律): 日线逆势禁做多/禁做空
                 ok_dir, dir_reason = self.risk.validate_daily_direction(
-                    inp.daily_regime, inp.daily_adx)
+                    inp.daily_regime, inp.daily_adx, side)
                 if not ok_dir:
                     self.memory.record_hold(sym, f"REJECT: {dir_reason}", session)
                     log.warning("拒绝 %s: %s", sym, dir_reason)
@@ -259,8 +269,9 @@ class SupermarketEngine:
                 price = float(quote.get("lastPr", 0))
                 contract = self._contract(sym)
                 ok, reason, params = self.risk.validate_open(
-                    sym, price, decision.stop_loss, decision.take_profit,
-                    contract, account, account.get("position_count", 0))
+                    sym, price, side, decision.stop_loss, decision.take_profit,
+                    contract, account,
+                    int(account.get("long_count", 0)), int(account.get("short_count", 0)))
                 if not ok:
                     self.memory.record_hold(sym, f"REJECT: {reason}", session)
                     log.warning("拒绝 %s: %s", sym, reason)
@@ -270,13 +281,16 @@ class SupermarketEngine:
                 except Exception as e:
                     log.error("开仓失败 %s: %s", sym, str(e)[:100])
                     continue
+                action_label = "BUY" if side == "long" else "SELL"
                 self.memory.record_open(
-                    sym, "BUY", pos.avg_entry, float(params["stop_loss"]),
+                    sym, action_label, pos.avg_entry, float(params["stop_loss"]),
                     float(params["take_profit"]), decision.reason, session,
-                    params={"notional": params["notional"], "leverage": params["leverage"]})
-                log.info("✅ 开仓 %s @$%.4f SL=%.2f TP=%.2f RR=%.2f | %s",
-                         sym, pos.avg_entry, params["stop_loss"],
-                         params["take_profit"], params["rr"], decision.reason[:60])
+                    params={"notional": params["notional"], "leverage": params["leverage"],
+                            "direction": side})
+                log.info("✅ %s %s @$%.4f SL=%.2f TP=%.2f RR=%.2f | %s",
+                         "开多" if side == "long" else "开空", sym, pos.avg_entry,
+                         params["stop_loss"], params["take_profit"], params["rr"],
+                         decision.reason[:60])
             else:
                 self.memory.record_hold(sym, decision.reason or "AI HOLD", session)
                 log.info("HOLD %s | %s", sym, (decision.reason or "")[:60])
