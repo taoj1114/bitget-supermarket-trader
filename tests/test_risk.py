@@ -72,9 +72,23 @@ def test_sl_too_far():
 
 
 def test_rr_too_low():
-    # SL 2.7%, TP 1.4% → RR 0.52
+    # SL 2.7%, TP 1.4% → RR 0.52 → 拒绝
     ok, reason, _ = V(sl=214.0, tp=223.0)
     assert not ok and "盈亏比" in reason
+
+
+def test_rr_marginally_low_auto_fix():
+    """RR 1.3~1.5 临界: 自动修正 TP 至 1.5(保留 AI 意图), 而非拒单。"""
+    ok, reason, params = V(sl=214.0, tp=229.5)  # SL 2.7% / TP 4.3% = RR 1.58? 需要构造 1.3
+    # 用精确构造: sl=214 (2.727%), tp=224 (1.818%) → RR 0.667 < 1.0 → 拒
+    ok2, reason2, _ = V(sl=214.0, tp=224.0)
+    assert not ok2 and "盈亏比" in reason2
+    # RR 1.33 (SL 3%, TP 4%): sl=213.4 (3.0%), tp=228.8 (4.0%) → RR 1.33 → 自动修正
+    ok3, reason3, params3 = V(sl=213.4, tp=228.8)
+    assert ok3, reason3
+    # 修正后 TP 提升至 RR=1.5: SL 3.0% → TP 距离 4.5%
+    assert params3["rr"] == 1.5
+    assert abs(params3["tp_dist_pct"] - 4.5) < 0.2
 
 
 def test_notional_cap_ok():

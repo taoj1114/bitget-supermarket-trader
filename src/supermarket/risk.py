@@ -163,7 +163,19 @@ class RiskEngine:
         tp_dist = abs(tp_eff - price) / price * 100
         rr = tp_dist / sl_dist if sl_dist > 0 else 0
         if rr < self.cfg.min_rr:
-            return False, f"盈亏比不足: TP{tp_dist:.1f}%/SL{sl_dist:.1f}% = {rr:.2f} < {self.cfg.min_rr}, 拒绝", {}
+            if rr >= 1.0:
+                # 临界不足(如1.49 vs 1.5): 自动修正 TP 至最低盈亏比, 保留 AI 意图
+                fixed_tp_dist = sl_dist * self.cfg.min_rr
+                if side == "long":
+                    tp_eff = price * (1 + fixed_tp_dist / 100)
+                else:
+                    tp_eff = price * (1 - fixed_tp_dist / 100)
+                tp_dist = fixed_tp_dist
+                rr = self.cfg.min_rr
+                log.info("盈亏比%.2f略低于%.1f → TP 自动修正至 RR=%.1f (保留仓位)",
+                         tp_dist / sl_dist, self.cfg.min_rr, self.cfg.min_rr)
+            else:
+                return False, f"盈亏比不足: TP{tp_dist:.1f}%/SL{sl_dist:.1f}% = {rr:.2f} < {self.cfg.min_rr}, 拒绝", {}
 
         # 数量步长
         mult = float(contract.get("sizeMultiplier", 0.01))
