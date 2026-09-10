@@ -130,11 +130,13 @@ class RiskEngine:
             return False, (f"名义超限: 已有${notional_now:.0f}+新${notional:.0f}"
                            f">净值×{self.cfg.max_notional_mult:.0f}=${equity * self.cfg.max_notional_mult:.0f}, 剩余额度${cap:.0f}"), {}
 
-        # 仓数(多头/空头独立上限)
+        # 仓数(多头由 净值×6÷每仓名义 推导, 硬顶6; 空头独立上限2)
         if side == "long":
-            max_pos = max(1, int(equity // self.cfg.max_positions_divisor))
+            # $50账户 → floor(50×6/40)=7 → 用户指定上限6; $30 → 4
+            max_pos = min(6, max(1, int(equity * self.cfg.max_notional_mult /
+                                        (self.cfg.margin_per_trade_usd * lev))))
             if long_count >= max_pos:
-                return False, f"多头仓数已达上限 {max_pos}(净值${equity:.0f}/{self.cfg.max_positions_divisor})", {}
+                return False, f"多头仓数已达上限 {max_pos}(${equity:.0f}账户, 用户设定6)", {}
         else:
             if short_count >= self.cfg.max_short_positions:
                 return False, f"空头仓数已达上限 {self.cfg.max_short_positions}(用户设定: 对冲用一两个)", {}

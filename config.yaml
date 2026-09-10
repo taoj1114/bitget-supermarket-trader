@@ -13,7 +13,7 @@ margin_mode: crossed         # 全仓模式(核心: 整体保证金扛亏损单)
 
 # ---- 风控硬约束 ----
 max_notional_mult: 6.0       # 总名义(多+空合计) ≤ 账户净值 × 6  (爆仓线≈-16%)
-max_positions_divisor: 10    # 多头最大仓数 = max(1, floor(净值/10))
+max_positions_divisor: 10    # 兼容字段(实际仓数上限按 净值×6÷每仓名义 推导, $50→6; 见 risk.py)
 max_short_positions: 2       # 空头最大仓数(用户: 只给一两个, 提供对冲)
 min_turnover_floor: 5000000  # 24h 成交额 ≥ $5M 才入池
 sl_min_pct: 2.0              # 止损距离下限 %(太近=噪音被扫; 超市理念: 给正常波动呼吸空间)
@@ -57,6 +57,6 @@ state_dir: state
 
 # ---- 模拟 ----
 paper:
-  initial_equity: 30.0       # 虚拟账户 $30 (用户充值区间 $20-50 中值)
+  initial_equity: 50.0       # 虚拟账户 $50 (用户确认; 对应多头约6-7仓上限)
   taker_fee: 0.0006
   maker_fee: 0.0002

@@ -104,7 +104,19 @@ def test_notional_cap_reject():
 
 
 def test_position_cap():
-    ok, reason, _ = V(longs=3)  # 上限 max(1, 30//10)=3 → 满
+    ok, reason, _ = V(longs=4)  # $30账户: 上限 min(6, floor(30×6/40))=4 → 满
+    assert not ok and "多头仓数" in reason
+    # 3 个多单时仍可开第4个
+    ok, reason, _ = V(longs=3)
+    assert ok
+
+
+def test_position_cap_50usd():
+    """$50 账户 → 上限 6(用户设定)。"""
+    _, acc = make_engine(equity=50.0)
+    ok, reason, _ = V(acc=acc, longs=5)
+    assert ok, reason
+    ok, reason, _ = V(acc=acc, longs=6)
     assert not ok and "多头仓数" in reason
 
 
