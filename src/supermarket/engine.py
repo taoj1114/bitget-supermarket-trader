@@ -239,6 +239,13 @@ class SupermarketEngine:
         for sym, quote, inp, decision in results:
             self.executor.set_quote(sym, quote)
             if decision.is_buy:
+                # 日线方向门控(代码即法律): 日线逆势禁做多
+                ok_dir, dir_reason = self.risk.validate_daily_direction(
+                    inp.daily_regime, inp.daily_adx)
+                if not ok_dir:
+                    self.memory.record_hold(sym, f"REJECT: {dir_reason}", session)
+                    log.warning("拒绝 %s: %s", sym, dir_reason)
+                    continue
                 price = float(quote.get("lastPr", 0))
                 contract = self._contract(sym)
                 ok, reason, params = self.risk.validate_open(

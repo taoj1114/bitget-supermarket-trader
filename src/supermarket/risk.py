@@ -85,6 +85,12 @@ class RiskEngine:
         return (base - equity) / base * 100 >= self.cfg.max_daily_drawdown_pct
 
     # ---------- 开仓校验 ----------
+    def validate_daily_direction(self, daily_regime: str, daily_adx: float) -> tuple[bool, str]:
+        """日线方向门控(用户铁律: 永不逆势): 日线明确向下(ADX≥25)→ 禁做多。"""
+        if daily_regime == "trend_down" and daily_adx >= 25:
+            return False, f"日线逆势: regime={daily_regime} ADX={daily_adx:.1f}≥25, 禁做多(永不逆势)"
+        return True, "ok"
+
     def validate_open(self, symbol: str, price: float, sl: float | None, tp: float | None,
                       contract: dict[str, Any], account: dict[str, Any], n_positions: int) -> tuple[bool, str, dict]:
         """返回 (ok, reason, 下单参数)。只做多。"""

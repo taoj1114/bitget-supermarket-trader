@@ -86,6 +86,8 @@ class AIInput:
     account: dict[str, Any] = field(default_factory=dict)
     history: str = ""
     lessons: list[str] = field(default_factory=list)
+    daily_regime: str = "flat"   # 日线 regime(代码级方向门控用)
+    daily_adx: float = 0.0
 
 
 class MarketData:
@@ -127,7 +129,7 @@ class MarketData:
         ind5 = compute_indicators(df5, primary=True)
         ind1h = compute_indicators(df1h, primary=False)
         ind4h = compute_indicators(df4h, primary=True)
-        ind1d = compute_indicators(df1d, primary=False)
+        ind1d = compute_indicators(df1d, primary=True)  # 日线是方向权威, 指标全量
 
         trend = trend_shape(df5)
         if not manage:
@@ -156,8 +158,8 @@ class MarketData:
             session=us_session(),
             ind_5m_line=render_ind(ind5, "5m(日内):"),
             ind_1h_line=render_ind(ind1h, "1H(趋势):"),
-            ind_4h_line=render_ind(ind4h, "4H(定方向):"),
-            ind_1d_line=render_ind(ind1d, "日线(背景):"),
+            ind_4h_line=render_ind(ind4h, "4H(中趋势):"),
+            ind_1d_line=render_ind(ind1d, "日线(定方向!):"),
             trend=trend,
             orderbook=orderbook,
             funding=funding,
@@ -165,4 +167,6 @@ class MarketData:
             account=account,
             history=history,
             lessons=lessons,
+            daily_regime=ind1d.regime,
+            daily_adx=ind1d.adx,
         )

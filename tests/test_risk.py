@@ -138,3 +138,16 @@ def test_win_resets_streak():
         eng.on_close(0.5)
         assert eng.state.consecutive_losses == 0
         assert eng.paused() == ""
+
+
+def test_daily_direction_gate():
+    eng, _ = make_engine()
+    # 日线明确向下(ADX≥25) → 禁做多
+    ok, reason = eng.validate_daily_direction("trend_down", 30.0)
+    assert not ok and "逆势" in reason
+    # 日线向下但 ADX 不足(衰竭期) → 允许(留给 AI 判断底部反转)
+    ok, _ = eng.validate_daily_direction("trend_down", 15.0)
+    assert ok
+    # 日线向上/横盘 → 允许
+    assert eng.validate_daily_direction("trend_up", 30.0)[0]
+    assert eng.validate_daily_direction("flat", 10.0)[0]
