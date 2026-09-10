@@ -89,7 +89,7 @@ class Config:
     leverage: int = 20
     margin_mode: str = "crossed"
     max_notional_mult: float = 6.0
-    max_positions_divisor: int = 10
+    max_positions_divisor: int = 10  # 保留(兼容); 实际仓数由 risk.py 按 净值×6÷每仓 推导
     max_short_positions: int = 2
     min_turnover_floor: float = 5_000_000.0
     sl_min_pct: float = 2.0

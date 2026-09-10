@@ -1,9 +1,10 @@
 """风控引擎: 代码硬约束 = 法律。LLM 的决策是建议, 这里决定能否执行。
 
-校验矩阵(见 DETAILED_DESIGN §5):
+风控矩阵(见 DETAILED_DESIGN §5):
 - 名义敞口 ≤ 净值×6            (全仓爆仓线 ≈ -16%)
-- 仓数 ≤ max(1, floor(净值/10)) (保证金占用 ≤ 净值60%)
-- SL 必填、方向正确、距离 1%~12%、RR≥1.5
+- 多头仓数 = min(6, floor(净值×6/每仓名义))  (超市: 50刀账户6仓位)
+- 空头仓数 ≤ 2                 (对冲配额)
+- SL 必填、方向正确、距离 2%~15%、RR≥1.5(临界1.0~1.5自动修正TP)
 - 日亏损 ≥30% 净值 → 当日禁开新仓; 连亏3 → 暂停2小时
 状态持久化到 state/breakers.json, 重启不丢。
 """
@@ -98,10 +99,8 @@ class RiskEngine:
     def validate_open(self, symbol: str, price: float, side: str,
                       sl: float | None, tp: float | None,
                       contract: dict[str, Any], account: dict[str, Any],
-                      long_count: int, short_count: int,
-                      allow_wide_sl: bool = False) -> tuple[bool, str, dict]:
-        """返回 (ok, reason, 下单参数)。side: long(做多) / short(做空)。
-        allow_wide_sl=True(深跌反转通道): 止损上限放宽到 20%(数据: 深跌后83%不再亏超15%)。"""
+                      long_count: int, short_count: int) -> tuple[bool, str, dict]:
+        """返回 (ok, reason, 下单参数)。side: long(做多) / short(做空)。"""
         self.rejects.clear()
         equity = float(account.get("equity", 0))
         notional_now = float(account.get("notional", 0))
@@ -156,7 +155,7 @@ class RiskEngine:
             tp_eff = tp if (tp and 0 < tp < price) else None
         if sl_dist < self.cfg.sl_min_pct:
             return False, f"止损过近({sl_dist:.2f}% < {self.cfg.sl_min_pct}%), 噪音止损, 拒绝", {}
-        sl_max = self.cfg.sl_max_pct if not allow_wide_sl else 20.0
+        sl_max = self.cfg.sl_max_pct
         if sl_dist > sl_max:
             return False, f"止损过远({sl_dist:.2f}% > {sl_max}%), 失控, 拒绝", {}
 

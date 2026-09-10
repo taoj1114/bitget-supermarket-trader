@@ -175,26 +175,18 @@ def test_short_cap_not_block_long():
 
 # ---------- 宽止损通道(深跌票参考, 非开仓标准) ----------
 def test_wide_sl_allowed():
-    """全局上限15%; 深跌票宽通道上限20%(仅风控容忍, 不由程序触发)。"""
+    """止损上限15%(统一, 无特殊通道): 18%拒, 15%过。"""
     eng, acc = make_engine(equity=100.0)
-    # 默认: SL 18% 拒绝(>15%)
+    # SL 18% 拒绝(>15%)
     ok, reason, _ = eng.validate_open("XUSDT", 100.0, "long", 82.0, 160.0,
                                       CONTRACT, acc, 0, 0)
     assert not ok and "过远" in reason
-    # 宽通道: SL 18% 放行(≤20%)
-    ok, reason, params = eng.validate_open("XUSDT", 100.0, "long", 82.0, 160.0,
-                                           CONTRACT, acc, 0, 0, allow_wide_sl=True)
-    assert ok, reason
-    assert params["sl_dist_pct"] == 18.0
-    assert params["rr"] >= 1.5
-    # 超20%仍拒(失控底线)
-    ok, reason, _ = eng.validate_open("XUSDT", 100.0, "long", 75.0, 175.0,
-                                      CONTRACT, acc, 0, 0, allow_wide_sl=True)
-    assert not ok and "过远" in reason
-    # 用户容忍度: 15%止损现在默认就可通过
+    # 用户容忍度上限: 15% 止损默认可通过
     ok, reason, params = eng.validate_open("XUSDT", 100.0, "long", 85.0, 160.0,
                                            CONTRACT, acc, 0, 0)
     assert ok, reason
+    assert params["sl_dist_pct"] == 15.0
+    assert params["rr"] >= 1.5
 
 
 # ---------- 日线方向门控(镜像) ----------

@@ -37,16 +37,15 @@ bitget-supermarket-trader/
 
 ```yaml
 mode: paper                    # paper | live(实盘需显式改+确认)
-scan_interval: 300             # 5 分钟
-symbol_pool: AUTO              # auto=流动性过滤后的全市场美股, 或显式列表
-max_symbols_per_round: 5
+scan_interval: 1800            # 30 分钟(中线; 周末停机), 每轮15标的
+max_symbols_per_round: 15
 margin_per_trade_usd: 2.0      # 每仓保证金上限($2)
 leverage: 20                   # 目标杠杆; 执行时 min(20, 合约maxLever)
 margin_mode: crossed           # 全仓! 用户核心要求
 max_notional_mult: 6.0         # 总名义 ≤ 净值 × 6
-max_positions_divisor: 10      # 仓数 ≤ 净值/10
+max_positions_divisor: 10      # 兼容(实际仓位 by risk.py: 净值×6÷每仓名义推导, 硬顶6)
 min_turnover_floor: 5000000    # 流动性门槛 24h 成交额 ≥ $5M
-sl_min_pct: 1.0  sl_max_pct: 12.0
+sl_min_pct: 2.0  sl_max_pct: 15.0
 min_rr: 1.5                    # 止盈/止损 距离比
 stop_repost_diff_pct: 0.2      # SL/TP 变更重挂阈值
 max_daily_drawdown_pct: 30.0
@@ -70,7 +69,7 @@ bitget:
   timeout_s: 20
 state_dir: state               # 决策/持仓/教训 JSON 落盘
 paper:
-  initial_equity: 30.0         # 虚拟账户(与用户充值区间 $20-50 中值)
+  initial_equity: 50.0         # 虚拟账户 $50 (用户确认; 多头约6仓上限)
   maker_fee: 0.0002
   taker_fee: 0.0006
 ```

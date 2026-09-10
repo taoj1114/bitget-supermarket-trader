@@ -159,7 +159,7 @@ class MarketData:
             symbol=symbol,
             quote=quote,
             session=us_session(),
-            ind_5m_line=render_ind(ind5, "5m(日内):"),
+            ind_5m_line=render_ind(ind5, "5m(短线时机):"),
             ind_1h_line=render_ind(ind1h, "1H(趋势):"),
             ind_4h_line=render_ind(ind4h, "4H(中趋势):"),
             ind_1d_line=render_ind(ind1d, "日线(定方向!):"),
