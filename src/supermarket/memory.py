@@ -114,25 +114,6 @@ class AIMemory:
             )
         return "\n".join(lines)
 
-    # ---------- 复盘 ----------
-    def review_due(self) -> bool:
-        n_closed = len(self.closed_decisions())
-        return n_closed >= 3 and (n_closed - self.review_base) >= 5
-
-    def set_review_base(self, n_closed: int) -> None:
-        self.review_base = n_closed
-        self._save()
-
-    def save_lessons(self, lessons: list[str]) -> None:
-        if lessons:
-            self.lessons = (lessons + self.lessons)[:MAX_LESSONS]
-            self._save()
-            log.info("已保存 %d 条复盘教训", len(lessons))
-
-    def clear_lessons(self) -> None:
-        self.lessons = []
-        self._save()
-
     def stats(self) -> dict[str, Any]:
         closed = self.closed_decisions()
         wins = [d for d in closed if d.get("pnl", 0) > 0]

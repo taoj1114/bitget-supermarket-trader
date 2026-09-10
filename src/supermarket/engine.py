@@ -30,11 +30,8 @@ from supermarket.memory import AIMemory
 from supermarket.prompts import (
     SYSTEM_MANAGE,
     SYSTEM_OPEN,
-    SYSTEM_REVIEW,
     build_manage_prompt,
     build_open_prompt,
-    build_review_prompt,
-    committee_diagnosis,
 )
 from supermarket.risk import RiskEngine
 
@@ -301,16 +298,8 @@ class SupermarketEngine:
                 self.memory.record_hold(sym, decision.reason or "AI HOLD", session)
                 log.info("HOLD %s | %s", sym, (decision.reason or "")[:60])
 
-    # ---------- 4. 复盘 ----------
-    def _maybe_review(self) -> None:
-        if not self.memory.review_due():
-            return
-        closed = self.memory.closed_decisions()
-        diag = committee_diagnosis(closed)
-        lessons = self.provider.review(SYSTEM_REVIEW, build_review_prompt(closed, diag))
-        self.memory.save_lessons(lessons)
-        self.memory.set_review_base(len(closed))
-        log.info("复盘完成: %d 条教训 (%s)", len(lessons), diag[:80])
+    # 注: 复盘/教训循环已按用户要求移除(2026-09)——
+    # AI 决策不进 lessons 注入, 只保留交易记录与品种历史(get_symbol_history)。
 
     # ---------- 主循环 ----------
     def run_once(self) -> dict[str, Any]:
@@ -334,7 +323,6 @@ class SupermarketEngine:
         self._reconcile()
         self._manage_positions(account)
         self._scan(account)
-        self._maybe_review()
         snap = self._snapshot(account)
         self._write_snapshot(snap)
         log.info("本轮完成 (%.1fs) 引擎状态: %s", time.time() - t0,

@@ -3,8 +3,8 @@
 设计要点(来自 ai-native-trading skill 的实战教训):
 - 数据即事实: 渲染全部行情数据, AI 是唯一决策者, 无规则预筛
 - 全仓模式数学: 名义敞口/爆仓线/手续费/资金费率是 AI 决策必须见到的成本
-- 复盘只出 lessons(参考性经验), 绝不生成"禁止类"规则
 - 防锚定: 历史只显示已平仓结果 + 显式"以当前数据为准"
+(复盘/教训循环已按用户要求移除)
 """
 
 from __future__ import annotations
@@ -85,8 +85,6 @@ def build_open_prompt(inp: "AIInput") -> str:
         lines.append("该股历史交易结果(已平仓, 仅参考):")
         lines.append(inp.history)
         lines.append("历史仅供参考——行情会反转, 必须以当前数据为准, 绝不因旧判断而固执。")
-    if inp.lessons:
-        lines.append("历史经验(参考): " + "；".join(inp.lessons))
 
     lines.append("")
     lines.append("决策步骤(内心完成, 不输出): "
@@ -105,9 +103,10 @@ SYSTEM_MANAGE = """你是持仓管理AI(超市店长)。为每个持仓独立决
 多头原则:
 1. 日线方向对照: 日线趋势转为明确向下(ADX≥25)→ 认错离场; 日线仍向上 → 正常的回调
    可以拿住等回涨(超市理论: 没买在高位的正常股票一段时间会涨回来)。
-2. 中线超市不急于锁利: 浮盈1-3%属正常波动, 继续持有, **不要因小浮盈上移止损**
-   (那会让正常回调扫掉你的仓位); 止损始终按结构位(关键支撑/MA下方)设置并给呼吸空间;
-   浮盈≥5% 或接近止盈目标 或 日线动能明显减弱 时, 才考虑兑现(CLOSE)或上移止损保护利润。
+2. **超市卖出原则: 卖出不亏就是赚**——浮盈≥0.5%(覆盖往返手续费0.12%后仍有赚)即可兑现
+   (CLOSE)落袋为安, 不必等大目标; 若日线动能仍强(放量上攻/加速)可继续持有博更大,
+   但出现滞涨/长上影/动能减弱/盘口卖压 → 立即兑现。止损仍只按结构位设置,
+   不因浮盈调整止损(保护靠'直接卖出兑现', 不靠移动止损)。
 3. 亏损<8%且日线未坏、没买在高位 → 拿住等回涨(超市核心: 给足呼吸空间, 用户容忍度
    10-15%深回调可拿); 亏损<8%但明显买错(追高被套/日线转坏苗头) → 认错(CLOSE);
    亏损≥10% → 必须认真考虑止损(CLOSE), 亏损≥15%仍不止损=失控立即离场。
@@ -115,9 +114,9 @@ SYSTEM_MANAGE = """你是持仓管理AI(超市店长)。为每个持仓独立决
 空头原则(镜像):
 1. 日线方向对照: 持仓的日线趋势转为明确向上(ADX≥25)→ 认错离场(空单别扛反弹);
    日线仍向下 → 正常的反弹可以拿住等回跌。
-2. 中线不急于锁利: 浮盈1-3%属正常波动, 继续持有, **不要因小浮盈下调止盈/移动止盈**
-   (那会让正常反弹扫掉你的仓位); 止损始终按结构位(关键阻力/MA上方)设置并给呼吸空间;
-   浮盈≥5% 或接近止盈目标 或 下跌动能明显减弱(放量长下影/RSI超卖) 时, 才考虑兑现或移动止盈。
+2. 超市卖出原则(空单镜像): 浮亏(价格下跌)≥0.5% 即可兑现(买回)落袋为安;
+   若下跌动能仍强可继续持有博更大, 但出现放量长下影/RSI超卖/动能减弱 → 立即兑现。
+   止损仍只按结构位设置, 不因浮盈调整。
 3. 亏损(价格上涨)<8%且日线未坏 → 可拿住; 亏损<8%但明显空错(抄顶被套) → 认错(CLOSE);
    亏损≥10% → 必须认真考虑止损(CLOSE), 亏损≥15%仍不止损=失控立即离场。
 
@@ -161,77 +160,8 @@ def build_manage_prompt(inp: "AIInput", pos: dict[str, Any]) -> str:
         lines.append(f"盘口: {inp.orderbook}")
     if inp.news:
         lines.append(f"新闻(事实参考): {inp.news}")
-    if inp.lessons:
-        lines.append("历史经验(参考): " + "；".join(inp.lessons))
     lines.append("")
     lines.append("决策步骤(内心完成): ① 日线方向还对吗(持仓方向对照) ② 位置止损清晰吗 "
                  "③ 盈利兑现还是拿住 ④ 亏损是'正常回调可等回涨'还是'买错要认错' ⑤ 资金费率/时间成本")
     lines.append("判断完毕直接输出JSON。")
     return "\n".join(lines)
-
-
-SYSTEM_REVIEW = """你是交易复盘教练。根据最近的真实交易结果(含盈亏数据), 输出可复用的经验教训。
-
-要求:
-- 只输出"经验教训"(描述性, 参考性质), 不要输出任何"禁止/必须"类的规则或命令。
-- 经验要具体: "什么情况下容易发生什么", 例如"追高成交量大涨股容易被反转扫损"。
-- 教训必须与事实诊断吻合(诊断给出的胜率/盈亏比/方向正确率等)。
-- 最多6条, 每条60字以内, 中文。
-- 如果样本太少(<5笔)或者没有亏损样本, 输出空列表。
-
-输出格式(严格JSON): {"lessons":["...", "..."]}"""
-
-
-def build_review_prompt(closed: list[dict[str, Any]], diagnosis: str) -> str:
-    rows = []
-    for c in closed[-25:]:
-        rows.append(
-            f"{c.get('symbol')} {c.get('action')} 入${float(c.get('entry',0)):.2f} "
-            f"出${float(c.get('exit',0)):.2f} pnl${float(c.get('pnl',0)):+.3f} "
-            f"({c.get('close_reason','')}) 最大浮盈{float(c.get('max_pnl_pct',0)):+.1f}%"
-        )
-    return (
-        "最近真实交易记录:\n" + "\n".join(rows) +
-        "\n\n事实诊断(委员会):\n" + diagnosis +
-        "\n\n请输出JSON {\"lessons\":[...]}。"
-    )
-
-
-# 委员会诊断(纯计算, 无LLM) — 与 review 配合
-def committee_diagnosis(closed: list[dict[str, Any]]) -> str:
-    if not closed:
-        return "无已平仓样本"
-    total = len(closed)
-    wins = [c for c in closed if float(c.get("pnl", 0)) > 0]
-    losses = [c for c in closed if float(c.get("pnl", 0)) <= 0]
-    wr = len(wins) / total * 100
-    gross_w = sum(float(c["pnl"]) for c in wins)
-    gross_l = sum(-float(c["pnl"]) for c in losses)
-    pf = (gross_w / gross_l) if gross_l > 0 else float("inf")
-    max_loss = min((float(c["pnl"]) for c in closed), default=0)
-    # 最大连亏
-    streak = 0
-    max_streak = 0
-    for c in sorted(closed, key=lambda x: x.get("close_ts", 0)):
-        if float(c.get("pnl", 0)) <= 0:
-            streak += 1
-            max_streak = max(max_streak, streak)
-        else:
-            streak = 0
-    dir_ok = sum(1 for c in closed if float(c.get("max_pnl_pct", 0)) >= 0.5)
-    dir_pct = dir_ok / total * 100 if total else 0
-    parts = [
-        f"样本{total}笔, 胜率{wr:.0f}% ({len(wins)}胜/{len(losses)}负)",
-        f"盈亏比{pf:.2f} (毛盈${gross_w:.2f}/毛亏${gross_l:.2f})",
-        f"最大连亏{max_streak}, 单笔最大亏损${max_loss:.2f}",
-        f"方向正确率{dir_pct:.0f}% (最大浮盈≥0.5%视为方向对)",
-    ]
-    if total < 8:
-        parts.append("样本<8, 结论置信度低")
-    if dir_pct < 40 and total >= 3:
-        parts.append("方向正确率过低→入场问题(选股/买点)")
-    elif dir_pct >= 60 and losses:
-        parts.append("方向对但亏损→止损/持有问题(止损过紧或离场过早)")
-    if max_streak >= 4:
-        parts.append("连亏≥4→存在系统性风险, 需检查是否追高/逆势")
-    return ", ".join(parts)

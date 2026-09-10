@@ -64,15 +64,10 @@ def test_fallback_provider():
     assert d.action == "HOLD"
     m = p.decide_manage("s", "p")
     assert m.action == "HOLD"
-    assert p.review("s", "p") == []
 
 
-def test_opencode_review_parse():
-    p = OpenCodeProvider("https://x/v1", "k", "m")
-    lessons = p.review.__wrapped__ if hasattr(p.review, "__wrapped__") else None
-    # 直接测内部解析路径: 手工构造响应
-    from supermarket.ai import parse_open_decision as pod
-    # review 用 _extract_json_block + json.loads, 我们测等价解析
+def test_extract_json_block_lessons():
+    """JSON 块提取(复盘移除后仍保留的基础解析能力)。"""
     import json as _json
     from supermarket.ai import _extract_json_block
     block = _extract_json_block('{"lessons":["追高被套","止损太紧"]}')

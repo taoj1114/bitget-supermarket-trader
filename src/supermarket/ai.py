@@ -159,7 +159,6 @@ class LLMProvider:
 
     def decide_open(self, system: str, prompt: str) -> OpenDecision: ...  # pragma: no cover
     def decide_manage(self, system: str, prompt: str) -> ManageDecision: ...  # pragma: no cover
-    def review(self, system: str, prompt: str) -> list[str]: ...  # pragma: no cover
 
 
 class FallbackHOLDProvider(LLMProvider):
@@ -172,9 +171,6 @@ class FallbackHOLDProvider(LLMProvider):
 
     def decide_manage(self, system: str, prompt: str) -> ManageDecision:
         return ManageDecision(action="HOLD", reason="LLM 未配置, 兜底 HOLD")
-
-    def review(self, system: str, prompt: str) -> list[str]:
-        return []
 
 
 class OpenCodeProvider(LLMProvider):
@@ -271,17 +267,6 @@ class OpenCodeProvider(LLMProvider):
         except Exception as e:
             log.error("manage 决策失败 → HOLD: %s", str(e)[:120])
             return ManageDecision(action="HOLD", reason=f"AI 调用失败: {str(e)[:60]}")
-
-    def review(self, system: str, prompt: str) -> list[str]:
-        try:
-            raw = self._chat(system, prompt, max_tokens=800)
-            block = _extract_json_block(raw)
-            obj = json.loads(block) if block else {}
-            lessons = obj.get("lessons", [])
-            return [str(x) for x in lessons if str(x).strip()][:6]
-        except Exception as e:
-            log.error("review 失败: %s", str(e)[:120])
-            return []
 
 
 def build_provider(cfg) -> LLMProvider:
