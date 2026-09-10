@@ -92,7 +92,7 @@ class Config:
     max_short_positions: int = 2
     min_turnover_floor: float = 5_000_000.0
     sl_min_pct: float = 2.0
-    sl_max_pct: float = 10.0
+    sl_max_pct: float = 15.0
     min_rr: float = 1.5
     stop_repost_diff_pct: float = 0.2
     max_daily_drawdown_pct: float = 30.0
@@ -132,7 +132,7 @@ class Config:
             max_short_positions=int(g("max_short_positions", 2)),
             min_turnover_floor=float(g("min_turnover_floor", 5_000_000.0)),
             sl_min_pct=float(g("sl_min_pct", 2.0)),
-            sl_max_pct=float(g("sl_max_pct", 10.0)),
+            sl_max_pct=float(g("sl_max_pct", 15.0)),
             min_rr=float(g("min_rr", 1.5)),
             stop_repost_diff_pct=float(g("stop_repost_diff_pct", 0.2)),
             max_daily_drawdown_pct=float(g("max_daily_drawdown_pct", 30.0)),

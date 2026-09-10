@@ -259,14 +259,9 @@ class SupermarketEngine:
             self.executor.set_quote(sym, quote)
             if decision.is_buy or decision.is_short:
                 side = "long" if decision.is_buy else "short"
-                deep_dip = bool(inp.deep_dip)
                 # 日线方向门控(代码即法律): 日线逆势禁做多/禁做空
-                # 例外: 深跌反转通道(已跌40%+且企稳)允许日线仍弱时BUY
-                if deep_dip and side == "long":
-                    ok_dir, dir_reason = True, "ok(深跌反转例外)"
-                else:
-                    ok_dir, dir_reason = self.risk.validate_daily_direction(
-                        inp.daily_regime, inp.daily_adx, side)
+                ok_dir, dir_reason = self.risk.validate_daily_direction(
+                    inp.daily_regime, inp.daily_adx, side)
                 if not ok_dir:
                     self.memory.record_hold(sym, f"REJECT: {dir_reason}", session)
                     log.warning("拒绝 %s: %s", sym, dir_reason)
@@ -276,8 +271,7 @@ class SupermarketEngine:
                 ok, reason, params = self.risk.validate_open(
                     sym, price, side, decision.stop_loss, decision.take_profit,
                     contract, account,
-                    int(account.get("long_count", 0)), int(account.get("short_count", 0)),
-                    allow_wide_sl=deep_dip)
+                    int(account.get("long_count", 0)), int(account.get("short_count", 0)))
                 if not ok:
                     self.memory.record_hold(sym, f"REJECT: {reason}", session)
                     log.warning("拒绝 %s: %s", sym, reason)
