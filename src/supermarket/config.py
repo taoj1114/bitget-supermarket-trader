@@ -83,7 +83,7 @@ class PaperCfg:
 class Config:
     mode: str = "paper"
     scan_interval: int = 300
-    max_symbols_per_round: int = 5
+    max_symbols_per_round: int = 15
     margin_per_trade_usd: float = 2.0
     leverage: int = 20
     margin_mode: str = "crossed"
@@ -122,7 +122,7 @@ class Config:
         return cls(
             mode=str(g("mode", "paper")).lower(),
             scan_interval=int(g("scan_interval", 300)),
-            max_symbols_per_round=int(g("max_symbols_per_round", 5)),
+            max_symbols_per_round=int(g("max_symbols_per_round", 15)),
             margin_per_trade_usd=float(g("margin_per_trade_usd", 2.0)),
             leverage=int(g("leverage", 20)),
             margin_mode=str(g("margin_mode", "crossed")).lower(),

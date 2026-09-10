@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -122,24 +123,18 @@ class SupermarketEngine:
         if not positions:
             return
         lessons = self.memory.lessons
-        for pos in positions:
+
+        def probe(pos) -> tuple | None:
+            """并行阶段: 取行情 + 构建输入 + AI 决策(只读)。"""
             sym = pos.symbol
+            entry = pos.avg_entry
             try:
                 quote = self.bg.quote(sym)
                 if not quote:
-                    continue
-                self.executor.set_quote(sym, quote)
-            except Exception as e:
-                log.warning("管仓 %s 报价失败: %s", sym, str(e)[:60])
-                continue
-            last = float(quote.get("lastPr", 0) or 0)
-            if last <= 0:
-                continue
-            # 更新最大浮盈(T+N 评估)
-            entry = pos.avg_entry
-            if entry > 0:
-                self.memory.set_max_pnl(sym, (last - entry) / entry * 100)
-            try:
+                    return None
+                last = float(quote.get("lastPr", 0) or 0)
+                if last <= 0:
+                    return None
                 inp = self.market.build_input(sym, quote, account,
                                               lessons=lessons, manage=True)
                 decision = self.provider.decide_manage(
@@ -147,10 +142,27 @@ class SupermarketEngine:
                         "symbol": sym, "avg_entry": entry, "notional": pos.notional,
                         "unrealized_pnl_pct": (last - entry) / entry * 100 if entry else 0,
                     }))
+                return (pos, quote, decision)
             except Exception as e:
                 log.error("管仓 %s 决策异常: %s", sym, str(e)[:80])
-                continue
+                return None
 
+        results = []
+        if len(positions) > 1:
+            with ThreadPoolExecutor(max_workers=min(4, len(positions))) as ex:
+                results = [r for r in ex.map(probe, positions) if r]
+        else:
+            r = probe(positions[0])
+            results = [r] if r else []
+
+        # 串行执行阶段(状态写)
+        for pos, quote, decision in results:
+            sym = pos.symbol
+            self.executor.set_quote(sym, quote)
+            last = float(quote.get("lastPr", 0) or 0)
+            entry = pos.avg_entry
+            if entry > 0:
+                self.memory.set_max_pnl(sym, (last - entry) / entry * 100)
             log.info("管仓 %s → %s | %s", sym, decision.action, decision.reason[:60])
             if decision.is_close:
                 res = self.executor.close(sym, reason="AI_CLOSE")
@@ -162,7 +174,6 @@ class SupermarketEngine:
                 else:
                     log.error("管仓平仓失败 %s: %s", sym, res.get("error"))
             elif decision.action == "ADJUST":
-                # 差异>0.2% 才重挂由 executor 内部判断
                 self.executor.manage_tpsl(sym, decision.stop_loss, decision.take_profit)
             # HOLD: 不动
 
@@ -199,21 +210,34 @@ class SupermarketEngine:
             return
         candidates = self._pick_candidates(account)
         lessons = self.memory.lessons
-        for sym in candidates:
+        session = __import__("supermarket.market", fromlist=["us_session"]).us_session()
+
+        def probe(sym) -> tuple | None:
+            """并行阶段: 取行情 + 构建 AIInput + AI 决策(只读)。"""
             try:
                 quote = self.bg.quote(sym)
                 if not quote or float(quote.get("lastPr", 0) or 0) <= 0:
-                    continue
-                self.executor.set_quote(sym, quote)
-                session = __import__("supermarket.market", fromlist=["us_session"]).us_session()
+                    return None
                 history = self.memory.get_symbol_history(sym)
                 inp = self.market.build_input(sym, quote, account,
                                               history=history, lessons=lessons)
                 decision = self.provider.decide_open(SYSTEM_OPEN, build_open_prompt(inp))
+                return (sym, quote, inp, decision)
             except Exception as e:
                 log.error("扫描 %s 异常: %s", sym, str(e)[:80])
-                continue
+                return None
 
+        results = []
+        if len(candidates) > 1:
+            with ThreadPoolExecutor(max_workers=min(6, len(candidates))) as ex:
+                results = [r for r in ex.map(probe, candidates) if r]
+        else:
+            r = probe(candidates[0]) if candidates else None
+            results = [r] if r else []
+
+        # 串行执行阶段(风控校验+开仓, 防并发超仓)
+        for sym, quote, inp, decision in results:
+            self.executor.set_quote(sym, quote)
             if decision.is_buy:
                 price = float(quote.get("lastPr", 0))
                 contract = self._contract(sym)

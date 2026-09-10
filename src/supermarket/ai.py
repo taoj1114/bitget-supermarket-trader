@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -190,23 +191,26 @@ class OpenCodeProvider(LLMProvider):
         self.circuit_pause_s = circuit_pause_s
         self._fail_streak = 0
         self._paused_until = 0.0
+        self._lock = threading.Lock()  # 并发扫描时保护熔断计数
 
     def _circuit_open(self) -> bool:
-        if time.time() < self._paused_until:
-            log.warning("AI 熔断中, 剩余 %.0fs", self._paused_until - time.time())
-            return True
-        if self._fail_streak >= self.circuit_failures:
-            self._paused_until = time.time() + self.circuit_pause_s
-            self._fail_streak = 0
-            log.warning("AI 连续失败 %d 次, 熔断 %ds", self.circuit_failures, self.circuit_pause_s)
-            return True
-        return False
+        with self._lock:
+            if time.time() < self._paused_until:
+                log.warning("AI 熔断中, 剩余 %.0fs", self._paused_until - time.time())
+                return True
+            if self._fail_streak >= self.circuit_failures:
+                self._paused_until = time.time() + self.circuit_pause_s
+                self._fail_streak = 0
+                log.warning("AI 连续失败 %d 次, 熔断 %ds", self.circuit_failures, self.circuit_pause_s)
+                return True
+            return False
 
     def _record(self, ok: bool) -> None:
-        if ok:
-            self._fail_streak = 0
-        else:
-            self._fail_streak += 1
+        with self._lock:
+            if ok:
+                self._fail_streak = 0
+            else:
+                self._fail_streak += 1
 
     def _chat(self, system: str, user: str, max_tokens: int | None = None) -> str:
         if not self.api_key:
