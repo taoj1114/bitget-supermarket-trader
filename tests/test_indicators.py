@@ -5,6 +5,7 @@ import numpy as np
 
 from supermarket.indicators import (
     compute_indicators,
+    deep_dip_reversal,
     klines_to_df,
     reversal_kline,
     trend_shape,
@@ -104,3 +105,28 @@ def test_klines_to_df_strings():
     assert df["close"].dtype == np.float64
     assert len(df) == 2
     assert float(df["close"].iloc[-1]) == 11.5
+
+
+def test_deep_dip_reversal_detected():
+    """跌40%+后企稳(站上MA5+自低点反弹≥5%) → 深跌反转信号。"""
+    # 60根: 30根从100涨到150, 然后30根跌到70(距高点-53%)
+    closes = list(np.linspace(100, 150, 30)) + list(np.linspace(148, 70, 30))
+    df = make_df(closes)
+    # 尾段制造企稳: 在低点后反弹8%并站上MA5
+    base = float(df["close"].iloc[-1])  # 70
+    df.iloc[-8:] = None  # 标记后重算
+    df = make_df(closes)
+    df.iloc[-6:, df.columns.get_loc("close")] = [71, 72.5, 74, 75.5, 76.5, 77.5]
+    ok, info = deep_dip_reversal(df)
+    assert ok, info
+    assert "深跌反转" in info
+    assert "83%" in info
+
+
+def test_deep_dip_no_signal_without_bounce():
+    """深跌但未企稳(还在跌) → 无信号(不接飞刀)。"""
+    closes = list(np.linspace(100, 150, 30)) + list(np.linspace(148, 70, 30))
+    closes += list(np.linspace(69, 50, 10))  # 继续阴跌
+    df = make_df(closes)
+    ok, info = deep_dip_reversal(df)
+    assert not ok

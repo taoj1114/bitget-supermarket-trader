@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from supermarket.indicators import (
     compute_indicators,
+    deep_dip_reversal,
     key_levels,
     klines_to_df,
     render_ind,
@@ -88,6 +89,7 @@ class AIInput:
     lessons: list[str] = field(default_factory=list)
     daily_regime: str = "flat"   # 日线 regime(代码级方向门控用)
     daily_adx: float = 0.0
+    deep_dip: str = ""           # 深跌反转信号(用户场景)或 ""
 
 
 class MarketData:
@@ -151,6 +153,12 @@ class MarketData:
         except (TypeError, ValueError):
             pass
 
+        deep_dip = ""
+        if not manage:
+            ok_dd, dd_info = deep_dip_reversal(df1d)
+            if ok_dd:
+                deep_dip = dd_info
+
         news = ""
         return AIInput(
             symbol=symbol,
@@ -169,4 +177,5 @@ class MarketData:
             lessons=lessons,
             daily_regime=ind1d.regime,
             daily_adx=ind1d.adx,
+            deep_dip=deep_dip,
         )

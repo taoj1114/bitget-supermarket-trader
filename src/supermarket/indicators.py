@@ -293,12 +293,41 @@ def reversal_kline(df_4h: pd.DataFrame, adx_1h: float = 0.0) -> str:
     return f"⚠️4H{side}反转K线({pos_label}): 前段{trend:+.1f}% 小实体 长影线 {','.join(signs)}"
 
 
-# ---------- 4H 关键位置 ----------
+# ---------- 关键位 ----------
 def key_levels(df_4h: pd.DataFrame, n: int = 12) -> tuple[float, float]:
     if df_4h is None or len(df_4h) < n:
         return 0.0, 0.0
     w = df_4h.tail(n)
     return float(w["high"].max()), float(w["low"].min())
+
+
+# ---------- 深跌反转(用户场景: 跌40-50%后开始反转) ----------
+def deep_dip_reversal(df_1d: pd.DataFrame) -> tuple[bool, str]:
+    """识别"深跌后企稳反转"的标的(用户命题 2026-09 数据验证):
+
+    研究(44标的×2271事件): 已回撤≥40%的时点, 未来60日继续最大跌幅中位-4.6%,
+    83%概率不再亏超15%, 但继续跌≥25%仍有7%尾部 → 必须企稳信号确认, 不接飞刀。
+
+    判定(全部满足才 True):
+    1. 距近120日高点回撤 ≥35%(深跌)
+    2. 收盘站上 MA5(短线企稳)
+    3. 自近20日低点反弹 ≥5%(反转迹象)
+    """
+    if df_1d is None or len(df_1d) < 40:
+        return False, ""
+    close = df_1d["close"]
+    last = float(close.iloc[-1])
+    hi120 = float(close.rolling(120, min_periods=40).max().iloc[-1])
+    if hi120 <= 0:
+        return False, ""
+    dd = last / hi120 - 1
+    lo20 = float(close.rolling(20, min_periods=10).min().iloc[-1])
+    ma5 = float(close.rolling(5).mean().iloc[-1])
+    bounce = last / lo20 - 1 if lo20 > 0 else 0.0
+    if dd <= -0.35 and last >= ma5 and bounce >= 0.05:
+        return True, (f"深跌反转: 距高点{dd * 100:.0f}% 自20日低点反弹{bounce * 100:.0f}% "
+                      f"站上MA5 — 83%概率不再亏超15%, 但7%尾部须止损纪律")
+    return False, ""
 
 
 # ---------- 一句话渲染 ----------

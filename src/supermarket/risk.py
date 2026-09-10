@@ -98,8 +98,10 @@ class RiskEngine:
     def validate_open(self, symbol: str, price: float, side: str,
                       sl: float | None, tp: float | None,
                       contract: dict[str, Any], account: dict[str, Any],
-                      long_count: int, short_count: int) -> tuple[bool, str, dict]:
-        """返回 (ok, reason, 下单参数)。side: long(做多) / short(做空)。"""
+                      long_count: int, short_count: int,
+                      allow_wide_sl: bool = False) -> tuple[bool, str, dict]:
+        """返回 (ok, reason, 下单参数)。side: long(做多) / short(做空)。
+        allow_wide_sl=True(深跌反转通道): 止损上限放宽到 20%(数据: 深跌后83%不再亏超15%)。"""
         self.rejects.clear()
         equity = float(account.get("equity", 0))
         notional_now = float(account.get("notional", 0))
@@ -152,8 +154,9 @@ class RiskEngine:
             tp_eff = tp if (tp and 0 < tp < price) else None
         if sl_dist < self.cfg.sl_min_pct:
             return False, f"止损过近({sl_dist:.2f}% < {self.cfg.sl_min_pct}%), 噪音止损, 拒绝", {}
-        if sl_dist > self.cfg.sl_max_pct:
-            return False, f"止损过远({sl_dist:.2f}% > {self.cfg.sl_max_pct}%), 失控, 拒绝", {}
+        sl_max = self.cfg.sl_max_pct if not allow_wide_sl else 20.0
+        if sl_dist > sl_max:
+            return False, f"止损过远({sl_dist:.2f}% > {sl_max}%), 失控, 拒绝", {}
 
         if tp_eff is None:
             return False, "AI未提供止盈价, 拒绝开仓(超市要快进快出)", {}
