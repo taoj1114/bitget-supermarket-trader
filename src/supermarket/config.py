@@ -82,7 +82,8 @@ class PaperCfg:
 @dataclass
 class Config:
     mode: str = "paper"
-    scan_interval: int = 300
+    scan_interval: int = 1800
+    skip_weekend: bool = True
     max_symbols_per_round: int = 15
     margin_per_trade_usd: float = 2.0
     leverage: int = 20
@@ -122,7 +123,8 @@ class Config:
         paper_raw = g("paper", {}) or {}
         return cls(
             mode=str(g("mode", "paper")).lower(),
-            scan_interval=int(g("scan_interval", 300)),
+            scan_interval=int(g("scan_interval", 1800)),
+            skip_weekend=bool(g("skip_weekend", True)),
             max_symbols_per_round=int(g("max_symbols_per_round", 15)),
             margin_per_trade_usd=float(g("margin_per_trade_usd", 2.0)),
             leverage=int(g("leverage", 20)),

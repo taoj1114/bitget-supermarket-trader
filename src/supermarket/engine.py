@@ -387,8 +387,18 @@ def main() -> None:
         eng.run_once()
         return
 
+    from supermarket.market import us_session
+    last_skip_log = 0.0
     while True:
         try:
+            # 非交易日/非交易时段门: 周末停机(中线策略不需要周末盯盘, TPSL在交易所保护)
+            if cfg.skip_weekend and us_session().startswith("weekend"):
+                now = time.time()
+                if now - last_skip_log > 3600:  # 每小时只记一次
+                    log.info("周末停机中(美股休市), 持仓由交易所侧 TPSL 保护")
+                    last_skip_log = now
+                time.sleep(600)
+                continue
             eng.run_once()
         except KeyboardInterrupt:
             break
