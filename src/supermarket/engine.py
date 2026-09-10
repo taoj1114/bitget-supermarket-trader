@@ -263,8 +263,12 @@ class SupermarketEngine:
             if decision.is_buy or decision.is_short:
                 side = "long" if decision.is_buy else "short"
                 # 日线方向门控(代码即法律): 日线逆势禁做多/禁做空
-                ok_dir, dir_reason = self.risk.validate_daily_direction(
-                    inp.daily_regime, inp.daily_adx, side)
+                # 例外: 深跌40%+且企稳的热门票允许 BUY(用户场景 2026-09, 低风险尝试)
+                if side == "long" and inp.deep_dip:
+                    ok_dir, dir_reason = True, f"深跌反转信号例外放行({inp.deep_dip})"
+                else:
+                    ok_dir, dir_reason = self.risk.validate_daily_direction(
+                        inp.daily_regime, inp.daily_adx, side)
                 if not ok_dir:
                     self.memory.record_hold(sym, f"REJECT: {dir_reason}", session)
                     log.warning("拒绝 %s: %s", sym, dir_reason)

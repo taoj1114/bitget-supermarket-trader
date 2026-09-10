@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from supermarket.indicators import (
     compute_indicators,
+    deep_dip_reversal,
     key_levels,
     klines_to_df,
     render_ind,
@@ -88,6 +89,7 @@ class AIInput:
     lessons: list[str] = field(default_factory=list)
     daily_regime: str = "flat"   # 日线 regime(代码级方向门控用)
     daily_adx: float = 0.0
+    deep_dip: str = ""           # 深跌反转信号(深跌40%+且企稳)或 ""
 
 
 class MarketData:
@@ -151,8 +153,13 @@ class MarketData:
         except (TypeError, ValueError):
             pass
 
-        # 注: deep_dip 检测器保留在 indicators(研究复用), 但不再注入决策流——
-        # 用户明确: 深跌反转只是风险容忍度的论证, 不是开仓标准。
+        # 深跌反转信号(用户场景 2026-09): 连续跌40%+的热门票, 企稳后可以尝试买入
+        # 数据支撑(44标的×2271事件): 深跌后83%概率不再亏超15%, 但7%尾部须止损纪律
+        deep_dip = ""
+        if not manage:
+            ok_dd, dd_info = deep_dip_reversal(df1d)
+            if ok_dd:
+                deep_dip = dd_info
 
         news = ""
         return AIInput(
@@ -172,4 +179,5 @@ class MarketData:
             lessons=lessons,
             daily_regime=ind1d.regime,
             daily_adx=ind1d.adx,
+            deep_dip=deep_dip,
         )
