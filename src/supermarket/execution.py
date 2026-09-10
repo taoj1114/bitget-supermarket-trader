@@ -89,10 +89,25 @@ class PaperExecutor:
     def account(self, symbol: str = "NVDAUSDT") -> dict[str, Any]:
         eq = float(self._state["equity"])
         pos = self._positions()
+        # 未实现浮盈亏(按方向)计入展示净值/日回撤口径; state.equity 保持已实现口径
+        unreal = 0.0
+        for p in pos:
+            q = self._quote_cache.get(p.symbol)
+            if not q:
+                continue
+            last = float(q.get("lastPr", 0) or 0)
+            if last <= 0:
+                continue
+            if p.direction == "long":
+                unreal += (last - p.avg_entry) * p.qty
+            else:
+                unreal += (p.avg_entry - last) * p.qty
+        eq_view = eq + unreal
         notional = sum(p.notional for p in pos)
         longs = sum(1 for p in pos if p.direction == "long")
         shorts = sum(1 for p in pos if p.direction == "short")
-        return {"equity": eq, "available": eq - sum(p.notional / p.leverage for p in pos),
+        return {"equity": eq_view, "available": eq - sum(p.notional / p.leverage for p in pos),
+                "unrealized": unreal,
                 "notional": notional, "position_count": len(pos), "long_count": longs,
                 "short_count": shorts, "day_pnl": 0.0,
                 "mode": "paper"}

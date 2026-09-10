@@ -62,14 +62,20 @@ class SupermarketEngine:
         else:
             self.executor = PaperExecutor(cfg, self.state_dir)
         self._contracts: dict[str, dict] = {}
+        self._contracts_ts = 0.0
         self._scan_rotate = 0
         self._last_daily: dict[str, float] = {}
 
     # ---------- 合约池 ----------
     def _load_contracts(self) -> None:
+        """美股合约缓存(5分钟TTL; 每轮全量拉取787合约是浪费)。"""
+        now = time.time()
+        if now - self._contracts_ts < 300:
+            return
         try:
             for c in self.bg.stock_contracts():
                 self._contracts[c["symbol"]] = c
+            self._contracts_ts = now
             log.info("美股合约缓存 %d 个", len(self._contracts))
         except Exception as e:
             log.warning("合约列表获取失败: %s", str(e)[:80])

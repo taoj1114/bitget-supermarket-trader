@@ -91,6 +91,25 @@ def test_reload_persist():
         assert ex2._state["equity"] < 30.0
 
 
+def test_account_includes_unrealized():
+    """paper 账户展示净值含未实现浮盈(风控/AI 口径), 已实现口径不变。"""
+    cfg = Config(); cfg.paper.initial_equity = 30.0
+    with tempfile.TemporaryDirectory() as td:
+        ex = PaperExecutor(cfg, Path(td))
+        params = {"size": 0.2, "leverage": 20, "stop_loss": 195.0, "take_profit": 210.0,
+                  "direction": "long"}
+        ex.open("NVDAUSDT", params, {"askPr": "200.0", "bidPr": "199.98", "lastPr": "200.0",
+                                     "fundingRate": "0"})
+        # 价格涨 2.5% → 浮盈 +$1.0
+        ex.set_quote("NVDAUSDT", {"lastPr": "205.0", "bidPr": "204.9", "askPr": "205.1",
+                                  "fundingRate": "0"})
+        acc = ex.account()
+        fee = 0.2 * 200.0 * 0.0006
+        assert abs(acc["equity"] - (30.0 - fee + 1.0)) < 1e-6  # 含浮盈
+        assert abs(acc["unrealized"] - 1.0) < 1e-6
+        assert abs(ex._state["equity"] - (30.0 - fee)) < 1e-6  # 已实现口径不变
+
+
 # ---------- 空头镜像 ----------
 def test_short_open_fills_at_bid():
     cfg = Config(); cfg.paper.initial_equity = 30.0
