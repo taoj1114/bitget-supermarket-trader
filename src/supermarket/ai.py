@@ -21,6 +21,8 @@ import httpx
 
 log = logging.getLogger(__name__)
 
+_MAX_RETRIES_DEFAULT = 3
+
 
 # ---------- 决策数据结构 ----------
 @dataclass

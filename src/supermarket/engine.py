@@ -164,7 +164,7 @@ class SupermarketEngine:
 
         results = []
         if len(positions) > 1:
-            with ThreadPoolExecutor(max_workers=min(4, len(positions))) as ex:
+            with ThreadPoolExecutor(max_workers=min(self.cfg.scan_workers, len(positions))) as ex:
                 results = [r for r in ex.map(probe, positions) if r]
         else:
             r = probe(positions[0])
@@ -248,7 +248,7 @@ class SupermarketEngine:
 
         results = []
         if len(candidates) > 1:
-            with ThreadPoolExecutor(max_workers=min(6, len(candidates))) as ex:
+            with ThreadPoolExecutor(max_workers=min(self.cfg.scan_workers, len(candidates))) as ex:
                 results = [r for r in ex.map(probe, candidates) if r]
         else:
             r = probe(candidates[0]) if candidates else None

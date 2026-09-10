@@ -63,7 +63,7 @@ class LLMCfg:
     temperature: float = 0.3
     max_tokens: int = 1200
     timeout_s: float = 45.0
-    max_retries: int = 2
+    max_retries: int = 3
     circuit_failures: int = 5
     circuit_pause_s: int = 300
 
@@ -102,6 +102,7 @@ class Config:
     symbol_pool: str | list[str] = "AUTO"
     hot_symbols: list[str] = field(default_factory=list)
     llm: LLMCfg = field(default_factory=LLMCfg)
+    scan_workers: int = 4
     bitget: BitgetCfg = field(default_factory=BitgetCfg)
     state_dir: str = "state"
     paper: PaperCfg = field(default_factory=PaperCfg)
@@ -126,6 +127,7 @@ class Config:
             scan_interval=int(g("scan_interval", 1800)),
             skip_weekend=bool(g("skip_weekend", True)),
             max_symbols_per_round=int(g("max_symbols_per_round", 15)),
+            scan_workers=int(g("scan_workers", 4)),
             margin_per_trade_usd=float(g("margin_per_trade_usd", 2.0)),
             leverage=int(g("leverage", 20)),
             margin_mode=str(g("margin_mode", "crossed")).lower(),
