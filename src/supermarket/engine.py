@@ -159,6 +159,8 @@ class SupermarketEngine:
                     SYSTEM_MANAGE, build_manage_prompt(inp, {
                         "symbol": sym, "avg_entry": entry, "notional": pos.notional,
                         "unrealized_pnl_pct": pnl_pct, "direction": pos.direction,
+                        "hold_days": round((time.time() - pos.opened_ts) / 86400, 1),
+                        "batches": getattr(pos, "batches", 1),
                     }))
                 return (pos, quote, decision)
             except Exception as e:
@@ -199,22 +201,45 @@ class SupermarketEngine:
                 self.executor.manage_tpsl(sym, decision.stop_loss, decision.take_profit)
             # HOLD: 不动
 
+    def _holding_line(self, sym: str) -> str:
+        """已持仓信息(批次/均价/浮盈/SL/TP), 给开仓AI决定加仓。"""
+        for p in self.executor.positions():
+            if p.symbol == sym:
+                q = self.market.quote(sym)
+                last = float(q.get("lastPr", 0) or 0)
+                if p.direction == "long":
+                    upnl = (last - p.avg_entry) / p.avg_entry * 100
+                else:
+                    upnl = (p.avg_entry - last) / p.avg_entry * 100
+                return (f"已持仓第{p.batches}批(上限{self.cfg.max_batches_per_symbol}) "
+                        f"qty{p.qty:.1f} 均价${p.avg_entry:.2f} 浮盈{upnl:+.2f}% SL={p.sl} TP={p.tp}")
+        return ""
+
     # ---------- 3. 扫描开仓 ----------
     def _pick_candidates(self, account: dict) -> list[str]:
-        held = {p.symbol for p in self.executor.positions()}
+        held = [p.symbol for p in self.executor.positions()]
         try:
             tickers = self.market.tickers()
         except Exception as e:
             log.error("ticker 获取失败: %s", str(e)[:80])
             return []
         vol = {t["symbol"]: float(t.get("usdtVolume", 0) or 0) for t in tickers}
+        # 异动度(24h涨跌绝对值): 超市关注热销/异动货源
+        chg = {}
+        for t in tickers:
+            try:
+                chg[t["symbol"]] = abs(float(t.get("changeUtc24h") or 0))
+            except (TypeError, ValueError):
+                chg[t["symbol"]] = 0.0
         # 流动性门槛(ceiling: 保留全部经 hot 白名单)
         valid = [s for s in vol
                  if s in self._contracts and s not in held
                  and (vol[s] >= self.cfg.min_turnover_floor or s in set(self.cfg.hot_symbols))]
         hot = [s for s in self.cfg.hot_symbols if s in valid]
-        rest = sorted((s for s in valid if s not in hot), key=lambda s: -vol[s])
-        out = hot[:3]
+        movers = sorted((s for s in valid if s not in hot), key=lambda s: -chg.get(s, 0))[:3]
+        rest = sorted((s for s in valid if s not in hot and s not in movers), key=lambda s: -vol[s])
+        # 已持仓标的一起入轮(看得见才能决定加仓/减仓/补货)
+        out = list(held[:8]) + hot[:3] + movers
         n = self.cfg.max_symbols_per_round - len(out)
         if n > 0 and rest:
             rotated = rest[self._scan_rotate:] + rest[:self._scan_rotate]
@@ -242,7 +267,8 @@ class SupermarketEngine:
                     return None
                 history = self.memory.get_symbol_history(sym)
                 inp = self.market.build_input(sym, quote, account,
-                                              history=history, lessons=lessons)
+                                              history=history, lessons=lessons,
+                                              current_holding=self._holding_line(sym))
                 decision = self.provider.decide_open(SYSTEM_OPEN, build_open_prompt(inp))
                 return (sym, quote, inp, decision)
             except Exception as e:
@@ -262,6 +288,9 @@ class SupermarketEngine:
             self.executor.set_quote(sym, quote)
             if decision.is_buy or decision.is_short:
                 side = "long" if decision.is_buy else "short"
+                # 加仓识别: 同标的同方向已有批次 → 加仓路径(不占新标的名额)
+                existing = next((p for p in self.executor.positions() if p.symbol == sym and p.direction == side), None)
+                batches_used = existing.batches if existing else 0
                 # 日线方向门控(代码即法律): 日线逆势禁做多/禁做空
                 # 例外: 深跌40%+且企稳的热门票允许 BUY(用户场景 2026-09, 低风险尝试)
                 if side == "long" and inp.deep_dip:
@@ -278,7 +307,8 @@ class SupermarketEngine:
                 ok, reason, params = self.risk.validate_open(
                     sym, price, side, decision.stop_loss, decision.take_profit,
                     contract, account,
-                    int(account.get("long_count", 0)), int(account.get("short_count", 0)))
+                    int(account.get("long_count", 0)), int(account.get("short_count", 0)),
+                    batches_used=batches_used)
                 if not ok:
                     self.memory.record_hold(sym, f"REJECT: {reason}", session)
                     log.warning("拒绝 %s: %s", sym, reason)

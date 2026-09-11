@@ -91,6 +91,7 @@ class Config:
     max_notional_mult: float = 6.0
     max_positions_divisor: int = 10  # 保留(兼容); 实际仓数由 risk.py 按 净值×6÷每仓 推导
     max_short_positions: int = 2
+    max_batches_per_symbol: int = 3   # 分批建仓上限(超市补货: $2×3=6保证金/标的)
     min_turnover_floor: float = 5_000_000.0
     sl_min_pct: float = 2.0
     sl_max_pct: float = 15.0
@@ -134,6 +135,7 @@ class Config:
             max_notional_mult=float(g("max_notional_mult", 6.0)),
             max_positions_divisor=int(g("max_positions_divisor", 10)),
             max_short_positions=int(g("max_short_positions", 2)),
+            max_batches_per_symbol=int(g("max_batches_per_symbol", 3)),
             min_turnover_floor=float(g("min_turnover_floor", 5_000_000.0)),
             sl_min_pct=float(g("sl_min_pct", 2.0)),
             sl_max_pct=float(g("sl_max_pct", 15.0)),

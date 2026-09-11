@@ -79,6 +79,27 @@ def test_funding_settlement(pe):
     assert abs(pe._state["equity"] - (30.0 - 0.004 - 0.024)) < 1e-6
 
 
+def test_batch_merge():
+    """分批建仓合并: 同标的同方向两次开仓 → 合并数量、加权均价、批次=2。"""
+    cfg = Config()
+    with tempfile.TemporaryDirectory() as td:
+        ex = PaperExecutor(cfg, Path(td))
+        q = {"askPr": "100.0", "lastPr": "100.0"}
+        ex.open("NVDAUSDT", {"size": "0.4", "leverage": 20, "stop_loss": 95.0,
+                             "take_profit": 104.0, "volume_place": 4}, q)
+        q2 = {"askPr": "90.0", "lastPr": "90.0"}
+        ex.open("NVDAUSDT", {"size": "0.4", "leverage": 20, "stop_loss": 86.0,
+                             "take_profit": 94.0, "volume_place": 4}, q2)
+        p = [p for p in ex.positions() if p.symbol == "NVDAUSDT"][0]
+        assert p.batches == 2
+        assert abs(p.qty - 0.8) < 1e-9
+        assert abs(p.avg_entry - 95.0) < 1e-9          # (100*0.4+90*0.4)/0.8
+        assert p.sl == 86.0 and p.tp == 94.0            # 新批次 SL/TP 生效
+        # 关闭时按合并后总量结算(平仓价90 < 均价95 → 亏损)
+        pnl, _ = ex.close("NVDAUSDT", price=90.0)
+        assert pnl < 0
+
+
 def test_reload_persist():
     cfg = Config()
     cfg.paper.initial_equity = 30.0

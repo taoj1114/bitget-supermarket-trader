@@ -99,7 +99,8 @@ class RiskEngine:
     def validate_open(self, symbol: str, price: float, side: str,
                       sl: float | None, tp: float | None,
                       contract: dict[str, Any], account: dict[str, Any],
-                      long_count: int, short_count: int) -> tuple[bool, str, dict]:
+                      long_count: int, short_count: int,
+                      batches_used: int = 0) -> tuple[bool, str, dict]:
         """返回 (ok, reason, 下单参数)。side: long(做多) / short(做空)。"""
         self.rejects.clear()
         equity = float(account.get("equity", 0))
@@ -130,15 +131,20 @@ class RiskEngine:
                            f">净值×{self.cfg.max_notional_mult:.0f}=${equity * self.cfg.max_notional_mult:.0f}, 剩余额度${cap:.0f}"), {}
 
         # 仓数(多头由 净值×6÷每仓名义 推导, 硬顶6; 空头独立上限2)
-        if side == "long":
-            # $50账户 → floor(50×6/40)=7 → 用户指定上限6; $30 → 4
-            max_pos = min(6, max(1, int(equity * self.cfg.max_notional_mult /
-                                        (self.cfg.margin_per_trade_usd * lev))))
-            if long_count >= max_pos:
-                return False, f"多头仓数已达上限 {max_pos}(${equity:.0f}账户, 用户设定6)", {}
-        else:
-            if short_count >= self.cfg.max_short_positions:
-                return False, f"空头仓数已达上限 {self.cfg.max_short_positions}(用户设定: 对冲用一两个)", {}
+        # 分批建仓: 同一标的同方向最多3批(超市补货); 加仓不占用新标的名额
+        if batches_used >= self.cfg.max_batches_per_symbol:
+            return False, (f"该标的方向 {side} 已有{batches_used}批≥上限"
+                           f"{self.cfg.max_batches_per_symbol}(${self.cfg.margin_per_trade_usd*self.cfg.max_batches_per_symbol:.0f}保证金/标的), 不再加仓"), {}
+        if batches_used == 0:
+            if side == "long":
+                # $50账户 → floor(50×6/40)=7 → 用户指定上限6; $30 → 4
+                max_pos = min(6, max(1, int(equity * self.cfg.max_notional_mult /
+                                            (self.cfg.margin_per_trade_usd * lev))))
+                if long_count >= max_pos:
+                    return False, f"多头仓数已达上限 {max_pos}(${equity:.0f}账户, 用户设定6)", {}
+            else:
+                if short_count >= self.cfg.max_short_positions:
+                    return False, f"空头仓数已达上限 {self.cfg.max_short_positions}(用户设定: 对冲用一两个)", {}
 
         # SL/TP 距离与盈亏比(方向镜像)
         if sl is None or sl <= 0:

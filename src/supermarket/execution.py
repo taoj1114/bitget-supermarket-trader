@@ -33,6 +33,7 @@ class Position:
     open_fee: float = 0.0
     volume_place: int = 4
     direction: str = "long"   # long / short
+    batches: int = 1          # 分批建仓批次(超市补货, 上限3)
 
     @property
     def notional(self) -> float:
@@ -47,7 +48,8 @@ class Position:
                                                                     "leverage", "sl", "tp",
                                                                     "opened_ts", "close_reason",
                                                                     "funding_paid", "open_fee",
-                                                                    "volume_place", "direction")})
+                                                                    "volume_place", "direction",
+                                                                    "batches")})
 
 
 def _atomic_write(path: Path, obj: Any) -> None:
@@ -173,11 +175,31 @@ class PaperExecutor:
             raise RuntimeError(f"{symbol} 无报价, 无法开仓")
         fee = qty * fill * self.cfg.paper.taker_fee
         self._state["equity"] -= fee
+        # 分批建仓(超市补货): 同标的同方向 → 合并批次, 加权均价
+        existing = self._state["positions"].get(symbol)
+        if existing and existing.get("direction", "long") == direction:
+            old_qty = float(existing["qty"]); old_entry = float(existing["avg_entry"])
+            new_qty = old_qty + qty
+            existing["qty"] = new_qty
+            existing["avg_entry"] = (old_entry * old_qty + fill * qty) / new_qty
+            existing["open_fee"] = float(existing.get("open_fee", 0)) + fee
+            existing["sl"] = float(params["stop_loss"])
+            existing["tp"] = float(params["take_profit"])
+            existing["leverage"] = int(params["leverage"])
+            existing["batches"] = int(existing.get("batches", 1)) + 1
+            self._save()
+            b = existing["batches"]
+            log.info("[paper] 加仓 %s %s 批次%d qty=%.4f @$%.2f 合并后均价$%.2f 名义$%.2f 手续费$%.4f",
+                     symbol, direction, b, qty, fill, existing["avg_entry"], new_qty * existing["avg_entry"], fee)
+            return Position(symbol=symbol, qty=new_qty, avg_entry=existing["avg_entry"],
+                            leverage=int(params["leverage"]), sl=existing["sl"], tp=existing["tp"],
+                            opened_ts=float(existing["opened_ts"]), volume_place=int(existing["volume_place"]),
+                            direction=direction, batches=b, open_fee=existing["open_fee"])
         pos = Position(symbol=symbol, qty=qty, avg_entry=fill, leverage=int(params["leverage"]),
                        sl=float(params["stop_loss"]), tp=float(params["take_profit"]),
                        opened_ts=time.time(),
                        volume_place=int(params.get("volume_place", 4) or 4),
-                       direction=direction)
+                       direction=direction, batches=1)
         pos.open_fee = fee
         self._state["positions"][symbol] = {**pos.to_dict(), "_last_settle": time.time()}
         self._save()

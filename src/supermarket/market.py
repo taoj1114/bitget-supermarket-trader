@@ -90,6 +90,7 @@ class AIInput:
     daily_regime: str = "flat"   # 日线 regime(代码级方向门控用)
     daily_adx: float = 0.0
     deep_dip: str = ""           # 深跌反转信号(深跌40%+且企稳)或 ""
+    current_holding: str = ""    # 已持仓信息(加仓决策用)
 
 
 class MarketData:
@@ -121,7 +122,8 @@ class MarketData:
     def build_input(self, symbol: str, quote: dict[str, Any],
                     account: dict[str, Any], history: str = "",
                     lessons: list[str] | None = None,
-                    manage: bool = False) -> AIInput:
+                    manage: bool = False,
+                    current_holding: str = "") -> AIInput:
         lessons = lessons or []
         df5 = klines_to_df(self.klines(symbol, "5m"))
         df1h = klines_to_df(self.klines(symbol, "1H"))
@@ -180,4 +182,5 @@ class MarketData:
             daily_regime=ind1d.regime,
             daily_adx=ind1d.adx,
             deep_dip=deep_dip,
+            current_holding=current_holding,
         )
