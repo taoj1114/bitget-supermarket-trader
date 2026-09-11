@@ -90,7 +90,13 @@ class SupermarketEngine:
     # ---------- 账户快照 ----------
     def _account(self) -> dict[str, Any]:
         try:
-            return self.executor.account()
+            acc = self.executor.account()
+            # 今日已实现盈亏由风控引擎维护, 注入给 AI 看(此前恒为0.00的bug)
+            try:
+                acc["day_pnl"] = round(float(self.risk.state.day_pnl), 4)
+            except Exception:
+                acc.setdefault("day_pnl", 0.0)
+            return acc
         except Exception as e:
             log.error("账户快照失败: %s", str(e)[:100])
             return {"equity": 0, "available": 0, "notional": 0, "position_count": 0,

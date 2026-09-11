@@ -91,6 +91,8 @@ class AIInput:
     daily_adx: float = 0.0
     deep_dip: str = ""           # 深跌反转信号(深跌40%+且企稳)或 ""
     current_holding: str = ""    # 已持仓信息(加仓决策用)
+    market_env: str = ""         # 大盘环境(SPY/QQQ, 只读参考)
+    daily_levels: str = ""       # 日线关键位(20日高低/MA30, 结构止损参考)
 
 
 class MarketData:
@@ -164,6 +166,34 @@ class MarketData:
                 deep_dip = dd_info
 
         news = ""
+
+        # 大盘环境(只读参考, 不交易): SPY/QQQ 24h涨跌 + 日线趋势 + UTC时间
+        market_env = ""
+        try:
+            spyq = self.bg.quote("SPYUSDT")
+            qqqq = self.bg.quote("QQQUSDT")
+            chg = lambda q: float(q.get("changeUtc24h") or 0) * 100
+            spy1d = compute_indicators(klines_to_df(self.klines("SPYUSDT", "1D", 50)), primary=False)
+            market_env = (f"[{time.strftime('%m-%d %H:%M')} UTC] 大盘: "
+                          f"SPY {chg(spyq):+.2f}% 24h(日线{spy1d.regime}) | "
+                          f"QQQ {chg(qqqq):+.2f}% 24h")
+        except Exception as e:
+            log.debug("大盘环境获取失败: %s", str(e)[:60])
+
+        # 日线关键位(结构止损参考): 20日高低 + MA30
+        daily_levels = ""
+        try:
+            if len(df1d) >= 20:
+                dhi = float(df1d["high"].tail(20).max())
+                dlo = float(df1d["low"].tail(20).min())
+                ma30 = ind1d.ma30
+                last_px = float(quote.get("lastPr", 0) or 0)
+                dev = (last_px / ma30 - 1) * 100 if ma30 and last_px else 0.0
+                daily_levels = (f"日线位(20日): 高{dhi:.2f} 低{dlo:.2f} "
+                                f"MA30 {ma30:.2f}(偏离{dev:+.1f}%) 跌破{min(dlo, ma30):.2f}=结构破坏")
+        except Exception as e:
+            log.debug("日线关键位计算失败: %s", str(e)[:60])
+
         return AIInput(
             symbol=symbol,
             quote=quote,
@@ -183,4 +213,6 @@ class MarketData:
             daily_adx=ind1d.adx,
             deep_dip=deep_dip,
             current_holding=current_holding,
+            market_env=market_env,
+            daily_levels=daily_levels,
         )

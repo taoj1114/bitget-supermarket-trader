@@ -80,6 +80,10 @@ def build_open_prompt(inp: "AIInput") -> str:
         f"(24h {float(inp.quote.get('changeUtc24h', 0) or 0) * 100:+.2f}%)  时段: {inp.session}",
         f"账户: {_render_account(inp.account)}",
     ]
+    if inp.market_env:
+        lines.insert(0, inp.market_env)
+    if inp.daily_levels:
+        lines.insert(1, inp.daily_levels)
     if inp.funding:
         lines.append(f"资金费率: {inp.funding}")
     lines.append(inp.ind_1d_line)   # 日线定方向, 放最前
@@ -172,6 +176,10 @@ def build_manage_prompt(inp: "AIInput", pos: dict[str, Any]) -> str:
         f"批次{batches}/3  已持有{hold_days:.1f}天(≥7天触发'清仓让位'评估)",
         f"账户: {_render_account(inp.account)}",
     ]
+    if inp.market_env:
+        lines.insert(0, inp.market_env)
+    if inp.daily_levels:
+        lines.insert(1, inp.daily_levels)
     if inp.funding:
         lines.append(f"资金费率: {inp.funding}")
     lines.append(inp.ind_1d_line)

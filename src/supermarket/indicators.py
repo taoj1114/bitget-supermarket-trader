@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -98,6 +99,7 @@ def compute_indicators(df: pd.DataFrame, primary: bool = True) -> IndicatorSet:
         return out
     close = df["close"]
     high, low = df["high"], df["low"]
+    ts = df["ts"] if "ts" in df.columns else pd.Series(dtype=float)
     last = float(close.iloc[-1])
 
     # RSI(14, Wilder)
@@ -120,14 +122,21 @@ def compute_indicators(df: pd.DataFrame, primary: bool = True) -> IndicatorSet:
     out.atr = float(_wilder_smooth(tr, 14).iloc[-1])
     out.atr_pct = float(out.atr / last * 100) if last else 0.0
 
-    # VWAP(近50根, 日内锚)
-    n = min(50, len(df))
+    # VWAP 语义: 近20周期成交均价锚(原50根在下行周期过长, 误导'当日VWAP')
+    n = min(20, len(df))
     tp = (high + low + close) / 3
     vw = (tp * df["volume"]).rolling(n).sum() / df["volume"].rolling(n).sum().replace(0, np.nan)
     out.vwap = float(vw.iloc[-1]) if not np.isnan(vw.iloc[-1]) else last
 
-    # 量比
-    out.vol_ratio = float(df["volume"].iloc[-1] / max(df["volume"].iloc[-21:-1].mean(), 1e-9))
+    # 量比: 用「最后一根完整K线」而非可能未完成的当前K线(避免半根K线量被当整量)
+    v = df["volume"]
+    last_idx = len(df) - 1
+    if len(df) >= 2:
+        period_ms = float(ts.iloc[-1] - ts.iloc[-2]) if len(ts) >= 2 else 0.0
+        if period_ms > 0 and float(ts.iloc[-1]) + period_ms > time.time() * 1000:
+            last_idx = len(df) - 2  # 当前K线未完成, 用上一根
+    mean20 = v.iloc[max(0, last_idx - 20):last_idx].mean()
+    out.vol_ratio = float(v.iloc[last_idx] / max(mean20, 1e-9))
 
     # 布林带(20, 2σ)
     mid = close.rolling(20).mean()
@@ -335,7 +344,7 @@ def render_ind(ind: IndicatorSet, label: str, extra: str = "") -> str:
     """输出形如: 5m RSI 52.1 MA10 220.5 MA30 219.8 ATR 0.9% VWAP 220.3 量比1.2 BB0.45 ..."""
     parts = [
         f"RSI{ind.rsi:.1f}", f"MA10 {ind.ma10:.2f}", f"MA30 {ind.ma30:.2f}",
-        f"ATR {ind.atr_pct:.2f}%", f"VWAP {ind.vwap:.2f}", f"量比{ind.vol_ratio:.2f}",
+        f"ATR {ind.atr_pct:.2f}%", f"20期均价 {ind.vwap:.2f}", f"量比{ind.vol_ratio:.2f}",
         f"BB{ind.bb_pos:.2f}", f"MACD {ind.macd_cross}", f"ADX{ind.adx:.1f}",
     ]
     if ind.regime != "flat":
