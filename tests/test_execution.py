@@ -96,8 +96,8 @@ def test_batch_merge():
         assert abs(p.avg_entry - 95.0) < 1e-9          # (100*0.4+90*0.4)/0.8
         assert p.sl == 86.0 and p.tp == 94.0            # 新批次 SL/TP 生效
         # 关闭时按合并后总量结算(平仓价90 < 均价95 → 亏损)
-        pnl, _ = ex.close("NVDAUSDT", price=90.0)
-        assert pnl < 0
+        res = ex.close("NVDAUSDT", reason="AI_CLOSE", price=90.0)
+        assert res.get("ok") and res["pnl"] < 0
 
 
 def test_reload_persist():

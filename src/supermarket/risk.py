@@ -133,8 +133,8 @@ class RiskEngine:
         # 仓数(多头由 净值×6÷每仓名义 推导, 硬顶6; 空头独立上限2)
         # 分批建仓: 同一标的同方向最多3批(超市补货); 加仓不占用新标的名额
         if batches_used >= self.cfg.max_batches_per_symbol:
-            return False, (f"该标的方向 {side} 已有{batches_used}批≥上限"
-                           f"{self.cfg.max_batches_per_symbol}(${self.cfg.margin_per_trade_usd*self.cfg.max_batches_per_symbol:.0f}保证金/标的), 不再加仓"), {}
+            return False, (f"该标的方向 {side} 已达批次上限 {self.cfg.max_batches_per_symbol}"
+                           f"(${self.cfg.margin_per_trade_usd*self.cfg.max_batches_per_symbol:.0f}保证金/标的), 不再加仓"), {}
         if batches_used == 0:
             if side == "long":
                 # $50账户 → floor(50×6/40)=7 → 用户指定上限6; $30 → 4

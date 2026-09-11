@@ -205,7 +205,7 @@ class SupermarketEngine:
         """已持仓信息(批次/均价/浮盈/SL/TP), 给开仓AI决定加仓。"""
         for p in self.executor.positions():
             if p.symbol == sym:
-                q = self.market.quote(sym)
+                q = self.bg.quote(sym)
                 last = float(q.get("lastPr", 0) or 0)
                 if p.direction == "long":
                     upnl = (last - p.avg_entry) / p.avg_entry * 100
