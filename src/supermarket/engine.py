@@ -50,7 +50,7 @@ class SupermarketEngine:
         self.state_dir = cfg.state_path
         self.bg = BitgetClient(cfg.bitget.base_url, cfg.bitget.api_key,
                                cfg.bitget.secret, cfg.bitget.passphrase)
-        self.market = MarketData(self.bg)
+        self.market = MarketData(self.bg, cfg=self.cfg)
         self.provider = build_provider(cfg)
         self.risk = RiskEngine(cfg, self.state_dir)
         self.memory = AIMemory(self.state_dir)
@@ -261,6 +261,15 @@ class SupermarketEngine:
         if paused:
             log.info("熔断: %s", paused)
             return
+        # 天气门(硬约束): SPY 24h 跌>3% = 系统性雨天, 禁开新仓(已有库存照常管)
+        try:
+            spyq = self.bg.quote("SPYUSDT")
+            spy_chg = float(spyq.get("changeUtc24h") or 0) * 100
+            if spy_chg <= -3.0:
+                log.warning("天气门: SPY 24h %.2f%% ≤ -3%%, 当日禁开新仓", spy_chg)
+                return
+        except Exception:
+            pass  # 拿不到 SPY 不阻塞(如网络抖动)
         candidates = self._pick_candidates(account)
         lessons = self.memory.lessons
         session = __import__("supermarket.market", fromlist=["us_session"]).us_session()
@@ -297,6 +306,18 @@ class SupermarketEngine:
                 # 加仓识别: 同标的同方向已有批次 → 加仓路径(不占新标的名额)
                 existing = next((p for p in self.executor.positions() if p.symbol == sym and p.direction == side), None)
                 batches_used = existing.batches if existing else 0
+                existing_pnl_pct, existing_entry = 0.0, 0.0
+                if existing is not None:
+                    try:
+                        q2 = self.bg.quote(sym)
+                        last2 = float(q2.get("lastPr", 0) or 0)
+                        if existing.direction == "long":
+                            existing_pnl_pct = (last2 - existing.avg_entry) / existing.avg_entry * 100
+                        else:
+                            existing_pnl_pct = (existing.avg_entry - last2) / existing.avg_entry * 100
+                        existing_entry = existing.avg_entry
+                    except Exception:
+                        pass
                 # 日线方向门控(代码即法律): 日线逆势禁做多/禁做空
                 # 例外: 深跌40%+且企稳的热门票允许 BUY(用户场景 2026-09, 低风险尝试)
                 if side == "long" and inp.deep_dip:
@@ -314,7 +335,10 @@ class SupermarketEngine:
                     sym, price, side, decision.stop_loss, decision.take_profit,
                     contract, account,
                     int(account.get("long_count", 0)), int(account.get("short_count", 0)),
-                    batches_used=batches_used)
+                    batches_used=batches_used,
+                    existing_pnl_pct=existing_pnl_pct,
+                    existing_entry=existing_entry,
+                    deep_dip=bool(inp.deep_dip))
                 if not ok:
                     self.memory.record_hold(sym, f"REJECT: {reason}", session)
                     log.warning("拒绝 %s: %s", sym, reason)

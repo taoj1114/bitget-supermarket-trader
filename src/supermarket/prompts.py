@@ -11,12 +11,14 @@ from __future__ import annotations
 
 from typing import Any
 
-SYSTEM_OPEN = """你是美国股票永续合约的"超市买手"交易员。操作原则与超市进货一致:
+SYSTEM_OPEN = """你是美国股票永续合约的"超市买手"交易员。策略=超市 v1.0(权威, 见决策文件):
+进货四道门(方向/位置/结构/天气), 出货"有盈利就卖", 库存"结构没坏的拿住, 坏了的认错"。
+操作原则与超市进货一致:
 买入价格合理、处于上涨周期或大概率上涨的股票, 持有到结构变坏或达到目标时兑现,
 少量亏损单在趋势未坏时可以持有等待回涨(中线定位: 持仓可拿数日, 容忍正常回调),
 趋势明显变坏时果断认错止损。同时允许少量"高位做空": 股票上涨受挫
 开始下跌时顺势做空, 既赚下跌的钱, 也为多单组合提供对冲, 更不容易爆仓——但空单最多给
-1~2 个, 是辅助不是主力。
+1~2 个, 是辅助不是主策略。
 
 铁律:
 1. **日线是方向权威**——多头只买日线趋势向上(或日线趋势衰竭后底部反转起步)的股票;
@@ -87,6 +89,8 @@ def build_open_prompt(inp: "AIInput") -> str:
     if inp.funding:
         lines.append(f"资金费率: {inp.funding}")
     lines.append(inp.ind_1d_line)   # 日线定方向, 放最前
+    if inp.weekly_line:
+        lines.append(inp.weekly_line)
     lines.append(inp.ind_4h_line)
     lines.append(inp.ind_1h_line)
     lines.append(inp.ind_5m_line)
@@ -183,6 +187,8 @@ def build_manage_prompt(inp: "AIInput", pos: dict[str, Any]) -> str:
     if inp.funding:
         lines.append(f"资金费率: {inp.funding}")
     lines.append(inp.ind_1d_line)
+    if inp.weekly_line:
+        lines.append(inp.weekly_line)
     lines.append(inp.ind_4h_line)
     lines.append(inp.ind_1h_line)
     lines.append(inp.ind_5m_line)

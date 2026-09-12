@@ -106,10 +106,11 @@ class BitgetClient:
             out.append(r)
         return out
 
-    def klines(self, symbol: str, granularity: str = "5m", limit: int = 200) -> list[dict[str, Any]]:
-        """K线。返回 [{open,high,low,close,volume,baseVolume,usdtVolume,ts,..}] 旧→新。"""
+    def klines(self, symbol: str, granularity: str = "5m", limit: int | None = None) -> list[dict[str, Any]]:
+        """K线。返回 [{open,high,low,close,volume,baseVolume,usdtVolume,ts,..}] 旧→新。
+        limit=None → 按周期需求取量(kline_limits: 指标需求驱动)。"""
         path = (f"/api/v2/mix/market/candles?symbol={symbol}&productType={PRODUCT_TYPE}"
-                f"&granularity={granularity}&limit={limit}")
+                f"&granularity={granularity}&limit={max(1, min(1000, limit or 200))}")
         data = self._request("GET", path)
         # 服务端返回横排数组: [ts, open, high, low, close, baseVolume, usdtVolume, ...]
         keys = ["ts", "open", "high", "low", "close", "baseVolume", "usdtVolume"]

@@ -191,19 +191,26 @@ def test_wide_sl_allowed():
 
 # ---------- 日线方向门控(镜像) ----------
 def test_batch_limits():
-    """分批建仓: 同一标的最多3批; 加仓不占用新标的名额。"""
+    """分批建仓: 同一标的最多3批; 加仓不占用名额; 金字塔补货=只浮盈补。"""
     eng, acc = make_engine(equity=100.0)
     # 第1批(新开)通过
     ok, reason, params = eng.validate_open("NVDAUSDT", 100.0, "long", 95.0, 110.0, CONTRACT, acc, 5, 0)
     assert ok, reason
-    # 第2批/第3批(加仓)通过, 即使多头名额已满(5/6)
-    ok, reason, _ = eng.validate_open("NVDAUSDT", 100.0, "long", 95.0, 110.0, CONTRACT, acc, 5, 0, batches_used=2)
+    # 第2/3批(加仓): 需现有浮盈≥0.5% + 新止损≥原均价+0.25% + SL≥2%距离, 通过
+    ok, reason, _ = eng.validate_open("NVDAUSDT", 104.0, "long", 101.9, 110.0, CONTRACT, acc, 5, 0,
+                                      batches_used=2, existing_pnl_pct=4.0, existing_entry=100.0)
     assert ok, reason
-    # 第4批 → 拒
-    ok, reason, _ = eng.validate_open("NVDAUSDT", 100.0, "long", 95.0, 110.0, CONTRACT, acc, 5, 0, batches_used=3)
+    # 第4批 → 拒(批次上限)
+    ok, reason, _ = eng.validate_open("NVDAUSDT", 100.0, "long", 95.0, 110.0, CONTRACT, acc, 5, 0,
+                                      batches_used=3, existing_pnl_pct=2.0, existing_entry=100.0)
     assert not ok and "批次" in reason
+    # 浮亏补货 → 拒(不摊平)
+    ok, reason, _ = eng.validate_open("NVDAUSDT", 99.0, "long", 95.0, 104.0, CONTRACT, acc, 5, 0,
+                                      batches_used=1, existing_pnl_pct=-1.0, existing_entry=100.0)
+    assert not ok and "浮盈" in reason
     # 空头镜像: 已2批再加 → 拒
-    ok, reason, _ = eng.validate_open("NVDAUSDT", 100.0, "short", 105.0, 96.0, CONTRACT, acc, 0, 2, batches_used=3)
+    ok, reason, _ = eng.validate_open("NVDAUSDT", 100.0, "short", 105.0, 96.0, CONTRACT, acc, 0, 2,
+                                      batches_used=3, existing_pnl_pct=2.0, existing_entry=100.0)
     assert not ok and "批次" in reason
 
 

@@ -93,6 +93,10 @@ class Config:
     max_short_positions: int = 2
     max_batches_per_symbol: int = 3   # 分批建仓上限(超市补货: $2×3=6保证金/标的)
     min_turnover_floor: float = 5_000_000.0
+    # K线取量(按周期需求定, 非统一200): 5m=入场时机(8h覆盖) 1H=趋势(10天)
+    # 4H=中趋势(50天) 1D=方向权威(90=Bitget上限) 1W=季节视角(13=上限)
+    kline_limits: dict[str, int] = field(
+        default_factory=lambda: {"5m": 100, "1H": 240, "4H": 300, "1D": 90, "1W": 13})
     sl_min_pct: float = 2.0
     sl_max_pct: float = 15.0
     min_rr: float = 1.5
@@ -137,6 +141,7 @@ class Config:
             max_short_positions=int(g("max_short_positions", 2)),
             max_batches_per_symbol=int(g("max_batches_per_symbol", 3)),
             min_turnover_floor=float(g("min_turnover_floor", 5_000_000.0)),
+            kline_limits=dict(g("kline_limits") or {"5m": 100, "1H": 240, "4H": 300, "1D": 90, "1W": 13}),
             sl_min_pct=float(g("sl_min_pct", 2.0)),
             sl_max_pct=float(g("sl_max_pct", 15.0)),
             min_rr=float(g("min_rr", 1.5)),

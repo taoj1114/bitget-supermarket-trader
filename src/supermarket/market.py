@@ -12,6 +12,8 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import pandas as pd
+
 from supermarket.indicators import (
     compute_indicators,
     deep_dip_reversal,
@@ -26,7 +28,7 @@ log = logging.getLogger(__name__)
 
 _ET = ZoneInfo("America/New_York")
 
-GRANULARITIES = {"5m": "5m", "1H": "1H", "4H": "4H", "1D": "1D"}
+GRANULARITIES = {"5m": "5m", "1H": "1H", "4H": "4H", "1D": "1D", "1W": "1W"}
 KLINE_LIMIT = 200
 
 
@@ -93,23 +95,25 @@ class AIInput:
     current_holding: str = ""    # 已持仓信息(加仓决策用)
     market_env: str = ""         # 大盘环境(SPY/QQQ, 只读参考)
     daily_levels: str = ""       # 日线关键位(20日高低/MA30, 结构止损参考)
+    weekly_line: str = ""        # 周线季节视角(仅13根, 季度方向参考)
 
 
 class MarketData:
-    def __init__(self, bg, kline_ttl: float = 60.0):
+    def __init__(self, bg, kline_ttl: float = 60.0, cfg: Config | None = None):
         self.bg = bg
         self.kline_ttl = kline_ttl
-        self._cache: dict[tuple[str, str], tuple[float, list]] = {}
+        self.cfg = cfg or Config()
+        self._cache: dict[tuple[str, str, int], tuple[float, list]] = {}
         self._ticker_cache: tuple[float, list] = (0.0, [])
 
     def klines(self, symbol: str, gf: str, limit: int = KLINE_LIMIT):
-        key = (symbol, gf)
+        key = (symbol, gf, limit)
         now = time.time()
         hit = self._cache.get(key)
         if hit and now - hit[0] < self.kline_ttl:
             return hit[1]
         # Bitget 只返回最近 ~100-200 根; granularity 枚举实测 '5m'/'1H'/'4H'/'1D'
-        rows = self.bg.klines(symbol, GRANULARITIES[gf], min(limit, 200))
+        rows = self.bg.klines(symbol, GRANULARITIES[gf], min(limit, 1000))
         self._cache[key] = (now, rows)
         return rows
 
@@ -127,10 +131,17 @@ class MarketData:
                     manage: bool = False,
                     current_holding: str = "") -> AIInput:
         lessons = lessons or []
-        df5 = klines_to_df(self.klines(symbol, "5m"))
-        df1h = klines_to_df(self.klines(symbol, "1H"))
-        df4h = klines_to_df(self.klines(symbol, "4H"))
-        df1d = klines_to_df(self.klines(symbol, "1D"))
+        lim = self.cfg.kline_limits
+        df5 = klines_to_df(self.klines(symbol, "5m", lim.get("5m")))
+        df1h = klines_to_df(self.klines(symbol, "1H", lim.get("1H")))
+        df4h = klines_to_df(self.klines(symbol, "4H", lim.get("4H")))
+        df1d = klines_to_df(self.klines(symbol, "1D", lim.get("1D")))
+        # 1W 周线=季节增强, 失败降级为空(不阻塞扫描)
+        df1w = pd.DataFrame()
+        try:
+            df1w = klines_to_df(self.klines(symbol, "1W", lim.get("1W", 13)))
+        except Exception as e:
+            log.debug("1W 拉取失败(降级为空): %s", str(e)[:60])
 
         ind5 = compute_indicators(df5, primary=True)
         ind1h = compute_indicators(df1h, primary=False)
@@ -194,6 +205,25 @@ class MarketData:
         except Exception as e:
             log.debug("日线关键位计算失败: %s", str(e)[:60])
 
+        # 周线季节视角(Bitget仅保留13根, 但足以看季度方向: 5/10周均线 + 近4周涨跌)
+        weekly_line = ""
+        try:
+            cw = df1w["close"].astype(float)
+            if len(cw) >= 5:
+                ma5 = float(cw.rolling(5, min_periods=5).mean().iloc[-1])
+                ma10 = float(cw.rolling(10, min_periods=10).mean().iloc[-1]) if len(cw) >= 10 else float("nan")
+                last_w = float(cw.iloc[-1])
+                chg4w = (last_w / float(cw.iloc[-5]) - 1) * 100
+                if not pd.isna(ma10):
+                    wdir = "上升" if ma5 >= ma10 and last_w >= ma5 else ("下降" if ma5 <= ma10 and last_w <= ma5 else "震荡")
+                else:
+                    wdir = "上升" if last_w >= ma5 else "下降"
+                weekly_line = (f"周线(季节视角,{len(cw)}根): 方向{wdir} "
+                               f"MA5 {ma5:.2f}/MA10 {ma10:.2f} 最近4周{chg4w:+.1f}% "
+                               f"(同比上升=中长期上涨周期中的票, 超市进货优先)")
+        except Exception as e:
+            log.debug("周线视角失败: %s", str(e)[:60])
+
         return AIInput(
             symbol=symbol,
             quote=quote,
@@ -215,4 +245,5 @@ class MarketData:
             current_holding=current_holding,
             market_env=market_env,
             daily_levels=daily_levels,
+            weekly_line=weekly_line,
         )

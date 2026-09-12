@@ -100,7 +100,10 @@ class RiskEngine:
                       sl: float | None, tp: float | None,
                       contract: dict[str, Any], account: dict[str, Any],
                       long_count: int, short_count: int,
-                      batches_used: int = 0) -> tuple[bool, str, dict]:
+                      batches_used: int = 0,
+                      existing_pnl_pct: float = 0.0,
+                      existing_entry: float = 0.0,
+                      deep_dip: bool = False) -> tuple[bool, str, dict]:
         """返回 (ok, reason, 下单参数)。side: long(做多) / short(做空)。"""
         self.rejects.clear()
         equity = float(account.get("equity", 0))
@@ -135,6 +138,14 @@ class RiskEngine:
         if batches_used >= self.cfg.max_batches_per_symbol:
             return False, (f"该标的方向 {side} 已达批次上限 {self.cfg.max_batches_per_symbol}"
                            f"(${self.cfg.margin_per_trade_usd*self.cfg.max_batches_per_symbol:.0f}保证金/标的), 不再加仓"), {}
+        if batches_used > 0:
+            # 金字塔补货: 只在浮盈时补(好卖的货才进货); 浮亏禁止摊平(赌徒行为)
+            if existing_pnl_pct < 0.5:
+                return False, (f"补货需浮盈≥0.5%(当前{existing_pnl_pct:+.2f}%)——"
+                               f"只补好卖的货, 浮亏不摊平(超市纪律)"), {}
+            if existing_entry > 0 and sl is not None and sl > 0 and side == "long" and sl < existing_entry * 0.9985:
+                return False, (f"补货后止损({sl:.2f})应≥原均价+0.25%({existing_entry*1.0025:.2f})"
+                               f"——补货即保护, 最差结果必须是不亏"), {}
         if batches_used == 0:
             if side == "long":
                 # $50账户 → floor(50×6/40)=7 → 用户指定上限6; $30 → 4
