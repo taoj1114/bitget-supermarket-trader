@@ -265,8 +265,9 @@ class SupermarketEngine:
         try:
             spyq = self.bg.quote("SPYUSDT")
             spy_chg = float(spyq.get("changeUtc24h") or 0) * 100
-            if spy_chg <= -3.0:
-                log.warning("天气门: SPY 24h %.2f%% ≤ -3%%, 当日禁开新仓", spy_chg)
+            if spy_chg <= self.cfg.spy_drop_gate_pct:
+                log.warning("天气门: SPY 24h %.2f%% ≤ %.1f%%, 当日禁开新仓",
+                            spy_chg, self.cfg.spy_drop_gate_pct)
                 return
         except Exception:
             pass  # 拿不到 SPY 不阻塞(如网络抖动)
@@ -337,8 +338,7 @@ class SupermarketEngine:
                     int(account.get("long_count", 0)), int(account.get("short_count", 0)),
                     batches_used=batches_used,
                     existing_pnl_pct=existing_pnl_pct,
-                    existing_entry=existing_entry,
-                    deep_dip=bool(inp.deep_dip))
+                    existing_entry=existing_entry)
                 if not ok:
                     self.memory.record_hold(sym, f"REJECT: {reason}", session)
                     log.warning("拒绝 %s: %s", sym, reason)

@@ -102,8 +102,7 @@ class RiskEngine:
                       long_count: int, short_count: int,
                       batches_used: int = 0,
                       existing_pnl_pct: float = 0.0,
-                      existing_entry: float = 0.0,
-                      deep_dip: bool = False) -> tuple[bool, str, dict]:
+                      existing_entry: float = 0.0) -> tuple[bool, str, dict]:
         """返回 (ok, reason, 下单参数)。side: long(做多) / short(做空)。"""
         self.rejects.clear()
         equity = float(account.get("equity", 0))

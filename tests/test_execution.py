@@ -94,10 +94,54 @@ def test_batch_merge():
         assert p.batches == 2
         assert abs(p.qty - 0.8) < 1e-9
         assert abs(p.avg_entry - 95.0) < 1e-9          # (100*0.4+90*0.4)/0.8
-        assert p.sl == 86.0 and p.tp == 94.0            # 新批次 SL/TP 生效
+        assert p.sl == 95.0 and p.tp == 94.0       # SL只收紧(95>86), TP随新批(94)
         # 关闭时按合并后总量结算(平仓价90 < 均价95 → 亏损)
         res = ex.close("NVDAUSDT", reason="AI_CLOSE", price=90.0)
         assert res.get("ok") and res["pnl"] < 0
+
+
+def test_batch_merge_sl_only_tightens():
+    """批次合并: 止损只收紧不放宽(多头取更高SL, 保护不被新批削弱)。"""
+    cfg = Config()
+    with tempfile.TemporaryDirectory() as td:
+        ex = PaperExecutor(cfg, Path(td))
+        q = {"askPr": "100.0", "lastPr": "100.0"}
+        ex.open("NVDAUSDT", {"size": "0.4", "leverage": 20, "stop_loss": 101.0,
+                             "take_profit": 110.0, "volume_place": 4}, q)
+        # 第二批给更宽的 SL(95) → 应保留更紧的 101
+        ex.open("NVDAUSDT", {"size": "0.2", "leverage": 20, "stop_loss": 95.0,
+                             "take_profit": 112.0, "volume_place": 4}, q)
+        p = [p for p in ex.positions() if p.symbol == "NVDAUSDT"][0]
+        assert p.sl == 101.0, f"止损被放宽了: {p.sl}"
+        # 第三批给更紧的 SL(103) → 收紧生效
+        ex.open("NVDAUSDT", {"size": "0.2", "leverage": 20, "stop_loss": 103.0,
+                             "take_profit": 112.0, "volume_place": 4}, q)
+        p = [p for p in ex.positions() if p.symbol == "NVDAUSDT"][0]
+        assert p.sl == 103.0
+
+
+def test_close_bookkeeping_closed_loop():
+    """账目闭环: equity == 初始 + Σ已平仓净pnl - 持仓未结费用(开仓费+资金费)。"""
+    cfg = Config()
+    with tempfile.TemporaryDirectory() as td:
+        ex = PaperExecutor(cfg, Path(td))
+        init = float(ex._state["equity"])
+        q = {"askPr": "100.0", "bidPr": "100.0", "lastPr": "100.0", "fundingRate": "0"}
+        # 开两批(加仓)
+        ex.open("NVDAUSDT", {"size": "0.4", "leverage": 20, "stop_loss": 95.0,
+                             "take_profit": 110.0, "volume_place": 4}, q)
+        ex.open("NVDAUSDT", {"size": "0.4", "leverage": 20, "stop_loss": 95.0,
+                             "take_profit": 110.0, "volume_place": 4}, q)
+        ex.open("AMDUSDT", {"size": "0.4", "leverage": 20, "stop_loss": 95.0,
+                            "take_profit": 110.0, "volume_place": 4}, q)
+        res = ex.close("NVDAUSDT", reason="TEST", price=105.0)   # 盈利平仓
+        assert res["ok"] and res["pnl"] > 0
+        closed_sum = sum(c["pnl"] for c in ex.closed_trades())
+        open_fee_left = sum(p.open_fee for p in ex.positions())
+        funding_left = sum(p.funding_paid for p in ex.positions())
+        expect = init + closed_sum - open_fee_left - funding_left
+        got = float(ex._state["equity"])
+        assert abs(got - expect) < 1e-9, f"equity {got:.8f} != 期望 {expect:.8f}"
 
 
 def test_reload_persist():

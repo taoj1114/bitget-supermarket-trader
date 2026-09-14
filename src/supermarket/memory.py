@@ -3,8 +3,9 @@
 分离设计(来自 ai-native-trading skill 教训):
 - decisions[]: 只存开仓动作(BUY), 已平仓的补 outcome; HOLD 不进 decisions
 - holds[]: 独立上限200, 只审计不复盘
-- lessons[]: 复盘产物, 注入决策 prompt(参考性质)
-- review_base: 持久化基线, 重启不丢(否则复盘永不触发)
+- decisions[]: 开仓决策(含 outcome/pnl/close_reason, 复盘审计用)
+- holds[]: HOLD/拒绝记录(近MAX_HOLDS条)
+(注: 复盘/教训循环已移除, lessons 字段保留空以供将来兼容)
 """
 
 from __future__ import annotations

@@ -183,7 +183,14 @@ class PaperExecutor:
             existing["qty"] = new_qty
             existing["avg_entry"] = (old_entry * old_qty + fill * qty) / new_qty
             existing["open_fee"] = float(existing.get("open_fee", 0)) + fee
-            existing["sl"] = float(params["stop_loss"])
+            # 止损只收紧不放宽(保护不被新批削弱): 多头取更高者, 空头取更低者
+            old_sl = float(existing.get("sl", 0) or 0)
+            new_sl = float(params["stop_loss"])
+            if old_sl > 0 and new_sl > 0:
+                keep_sl = max(old_sl, new_sl) if direction == "long" else min(old_sl, new_sl)
+            else:
+                keep_sl = new_sl or old_sl
+            existing["sl"] = keep_sl
             existing["tp"] = float(params["take_profit"])
             existing["leverage"] = int(params["leverage"])
             existing["batches"] = int(existing.get("batches", 1)) + 1
@@ -224,17 +231,21 @@ class PaperExecutor:
             return {"ok": False, "error": "no quote"}
         fee = pos.qty * fill * self.cfg.paper.taker_fee
         open_fee = getattr(pos, "open_fee", 0.0) or 0.0
+        funding_paid = getattr(pos, "funding_paid", 0.0) or 0.0
         if pos.direction == "long":
-            pnl = (fill - pos.avg_entry) * pos.qty - fee - open_fee - pos.funding_paid
+            pnl = (fill - pos.avg_entry) * pos.qty - fee - open_fee - funding_paid
         else:
-            pnl = (pos.avg_entry - fill) * pos.qty - fee - open_fee - pos.funding_paid
-        self._state["equity"] += pnl + fee  # equity 已含 open_fee/funding 扣减, 只补毛利
-        self._state["realized_pnl"] += pnl
+            pnl = (pos.avg_entry - fill) * pos.qty - fee - open_fee - funding_paid
+        # 账目闭环: pnl 已扣全部费用(平仓费+开仓费+资金费); 开仓费/资金费已在
+        # 开仓与结算时从 equity 扣过, 故此处只补「毛利-平仓费」= pnl + open_fee + funding_paid
+        self._state["equity"] += pnl + open_fee + funding_paid
+        self._state["realized_pnl"] = self._state.get("realized_pnl", 0.0) + pnl
         self._state["positions"].pop(symbol, None)
         self._state["closed"].append({
             "symbol": symbol, "qty": pos.qty, "entry": pos.avg_entry, "exit": fill,
             "pnl": pnl, "reason": reason, "ts": time.time(),
             "lev": pos.leverage, "sl": pos.sl, "tp": pos.tp, "direction": pos.direction,
+            "close_fee": fee, "open_fee": open_fee, "funding_paid": funding_paid,
         })
         self._save()
         log.info("[paper] 平仓 %s (%s) @$%.2f pnl $%+.4f (%s)",
