@@ -130,13 +130,9 @@ def main() -> int:
     print(f"  余额≥$1: {'✓' if eq_ok else '✗(当前尘埃值 %.8f, 需充值)' % float(acc.get('usdtEquity', 0) or 0)}")
     try:
         from supermarket.ai import build_provider
-        req = {"base_url": cfg.llm.base_url, "api_key": cfg.llm.api_key,
-               "model": cfg.llm.model, "timeout_s": cfg.llm.timeout_s,
-               "max_retries": cfg.llm.max_retries, "temperature": cfg.llm.temperature,
-               "max_tokens": cfg.llm.max_tokens, "circuit_failures": cfg.llm.circuit_failures,
-               "circuit_pause_s": cfg.llm.circuit_pause_s}
-        p = build_provider(type("C", (), {"llm": type("L", (), req)})())
-        print(f"  LLM: {cfg.llm.model} {'✓' if p.__class__.__name__ != 'FallbackHOLDProvider' else '✗(未配置)'}")
+        p = build_provider(cfg)
+        print(f"  LLM: {cfg.llm.model} "
+              f"{'✓' if p.__class__.__name__ != 'FallbackHOLDProvider' else '✗(未配置)'}")
     except Exception as e:
         print(f"  LLM 检查异常: {str(e)[:100]}")
 
