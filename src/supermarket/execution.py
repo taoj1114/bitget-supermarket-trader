@@ -319,36 +319,30 @@ class RealExecutor:
         _atomic_write(self._file, self._state)
 
     def account(self, symbol: str = "NVDAUSDT") -> dict[str, Any]:
-        acc = self.bg.account(symbol)
-        eq = float(acc.get("usdtEquity", 0) or 0)
-        avail = float(acc.get("available", 0) or 0)
+        a = self.bg.v3_account()
         pos = self.positions()
         notional = sum(p.notional for p in pos)
         longs = sum(1 for p in pos if p.direction == "long")
         shorts = sum(1 for p in pos if p.direction == "short")
-        return {"equity": eq, "available": avail, "notional": notional,
+        return {"equity": a["equity"], "available": a["available"], "notional": notional,
                 "position_count": len(pos), "long_count": longs, "short_count": shorts,
                 "day_pnl": 0.0, "mode": "real"}
 
     def positions(self) -> list[Position]:
         out = []
         try:
-            for r in self.bg.positions():
-                if float(r.get("holdVol", 0) or 0) <= 0:
-                    continue
-                hold_side = r.get("holdSide", "long")
-                if hold_side not in ("long", "short"):
-                    continue
+            for r in self.bg.v3_positions():
                 sym = r["symbol"]
                 h = self._hold(sym)
+                qp, _ = self.bg.v3_precision(sym)
                 out.append(Position(
                     symbol=sym,
-                    qty=float(r["holdVol"]),
-                    avg_entry=float(r["avgEntryPrice"]),
+                    qty=float(r.get("total", 0) or 0),
+                    avg_entry=float(r.get("avgPrice", 0) or 0),
                     leverage=int(float(r.get("leverage", self.cfg.leverage) or self.cfg.leverage)),
-                    opened_ts=float(r.get("openTimeAvg", 0) or 0) / 1000,
-                    direction=hold_side,
-                    volume_place=self._vp(sym),
+                    opened_ts=float(r.get("createdTime", 0) or 0) / 1000,
+                    direction=str(r.get("posSide")),
+                    volume_place=qp,
                     sl=float(h.get("sl", 0) or 0),
                     tp=float(h.get("tp", 0) or 0),
                     batches=int(h.get("batches", 1) or 1),
@@ -363,177 +357,149 @@ class RealExecutor:
 
     def open(self, symbol: str, params: dict[str, Any], quote: dict[str, Any]) -> Position:
         lev = int(params["leverage"])
-        vp = int(params.get("volume_place", 4) or 4)
         direction = str(params.get("direction", "long"))
         side = "buy" if direction == "long" else "sell"
-        # 1) 杠杆(双向模式 holdSide=long/short; 必须带 productType)
+        qty = float(params["size"])
+        sl = float(params["stop_loss"])
+        tp = float(params["take_profit"])
+        # 1) 杠杆(v3)
         try:
-            self.bg.set_leverage(symbol, lev, direction)
+            self.bg.v3_set_leverage(symbol, lev, self.cfg.margin_mode)
         except Exception as e:
             raise RuntimeError(f"set_leverage 失败: {str(e)[:80]}")
-        # 2) 市价开仓(双向持仓模式必须传 posSide)
+        # 2) 市价开仓 + preset TP/SL(v3 一步到位: 交易所侧 TPSL, 无裸奔窗口)
+        oid = ""
         try:
-            self.bg.place_order(symbol, side, self._size_str(float(params["size"]), vp),
-                                order_type="market", leverage=lev,
-                                margin_mode=self.cfg.margin_mode, reduce_only=False,
-                                pos_side=direction)
+            res = self.bg.v3_place_order(symbol, side, qty, pos_side=direction,
+                                         order_type="market", stop_loss=sl, take_profit=tp,
+                                         client_oid=f"hopen{int(time.time()*1000)}"[:32])
+            oid = (res or {}).get("orderId", "")
         except Exception as e:
-            raise RuntimeError(f"开仓失败: {str(e)[:80]}")
-        # 3) 回读持仓(确认已成交)
+            raise RuntimeError(f"开仓失败: {str(e)[:100]}")
+        # 3) 回读持仓 + TPSL 策略单确认
         time.sleep(2)
         pos = next((p for p in self.positions()
                     if p.symbol == symbol and p.direction == direction), None)
         if pos is None:
-            raise RuntimeError("开仓后回读不到持仓, 立即人工核对(可能未成交)")
-        # 4) 挂 TPSL(实测Bitget: 必须先有仓位43023) — 失败即平仓回滚, 不留裸仓
+            raise RuntimeError(f"开仓后回读不到持仓(订单{oid}), 立即人工核对")
         tpsl_ids: list[str] = []
         try:
-            sl = self.bg.place_tpsl(symbol, "pos_loss", f"{float(params['stop_loss']):.4f}",
-                                    hold_side=direction)
-            tpsl_ids.append(sl.get("orderId", ""))
-            tp = self.bg.place_tpsl(symbol, "pos_profit", f"{float(params['take_profit']):.4f}",
-                                    hold_side=direction)
-            tpsl_ids.append(tp.get("orderId", ""))
+            for s in self.bg.v3_strategy_orders(symbol):
+                if str(s.get("posSide")) == direction:
+                    tpsl_ids.append(str(s.get("orderId", "")))
+            if not tpsl_ids:
+                log.error("⚠️ %s 开仓后未发现 TPSL 策略单(订单%s), 请人工核查保护!", symbol, oid)
         except Exception as e:
-            log.error("挂 TPSL 失败 %s: %s → 立即平仓回滚(不留裸仓)", symbol, str(e)[:120])
-            try:
-                close_side = "sell" if direction == "long" else "buy"
-                self.bg.place_order(symbol, close_side, self._size_str(pos.qty, vp),
-                                    order_type="market", leverage=lev,
-                                    margin_mode=self.cfg.margin_mode, reduce_only=True,
-                                    pos_side=direction)
-                log.warning("已回滚平仓 %s %.4f", symbol, pos.qty)
-            except Exception as e2:
-                log.error("回滚平仓失败 %s: %s → ⚠️裸仓需人工立即处理", symbol, str(e2)[:120])
-            raise RuntimeError(f"TPSL挂单失败已回滚: {str(e)[:80]}")
-        # 5) 本地记录(供 positions 回填 sl/tp/batches; SL 只收紧不放宽)
+            log.warning("TPSL 策略单查询失败 %s: %s", symbol, str(e)[:80])
+        # 4) 本地记录(SL 只收紧不放宽)
         h = self._state.setdefault("holdings", {}).get(symbol) or {}
         old_sl = float(h.get("sl", 0) or 0)
-        new_sl = float(params["stop_loss"])
-        if old_sl > 0 and new_sl > 0:
-            keep_sl = max(old_sl, new_sl) if direction == "long" else min(old_sl, new_sl)
+        if old_sl > 0 and sl > 0:
+            keep_sl = max(old_sl, sl) if direction == "long" else min(old_sl, sl)
         else:
-            keep_sl = new_sl or old_sl
+            keep_sl = sl or old_sl
         self._state["holdings"][symbol] = {
-            "sl": keep_sl, "tp": float(params["take_profit"]),
-            "batches": int(h.get("batches", 0)) + 1, "direction": direction,
-            "opened_ts": h.get("opened_ts") or time.time(),
-            "volume_place": vp,
+            "sl": keep_sl, "tp": tp, "batches": int(h.get("batches", 0)) + 1,
+            "direction": direction, "opened_ts": h.get("opened_ts") or time.time(),
+            "tpsl_ids": tpsl_ids,
         }
         self._state["orders"].append({
-            "ts": time.time(), "symbol": symbol, "side": side, "qty": float(params["size"]),
-            "entry": pos.avg_entry, "sl": params["stop_loss"], "tp": params["take_profit"],
+            "ts": time.time(), "symbol": symbol, "side": side, "qty": qty,
+            "entry": pos.avg_entry, "sl": sl, "tp": tp, "order_id": oid,
             "tpsl_ids": tpsl_ids, "direction": direction, "action": "open",
         })
         self._save()
-        log.info("[LIVE] 开仓 %s %s @$%.4f qty=%.4f SL=%s TP=%s tpsl=%s",
-                 symbol, direction, pos.avg_entry, pos.qty,
-                 params["stop_loss"], params["take_profit"], tpsl_ids)
+        log.info("[LIVE] 开仓 %s %s @$%.4f qty=%.4f SL=%s TP=%s 订单%s TPSL%s",
+                 symbol, direction, pos.avg_entry, pos.qty, sl, tp, oid, tpsl_ids)
         return pos
 
     def close(self, symbol: str, reason: str = "AI_CLOSE", price: float | None = None) -> dict[str, Any]:
         pos = next((p for p in self.positions() if p.symbol == symbol), None)
         if not pos:
             return {"ok": False, "error": "no position"}
-        side = "sell" if pos.direction == "long" else "buy"  # 平仓方向镜像
+        # 平仓(hedge: 只传 posSide, ⚠️不能带 reduceOnly → 25238)
         try:
-            self.bg.place_order(symbol, side, self._size_str(pos.qty, pos.volume_place),
-                                order_type="market",
-                                leverage=pos.leverage, margin_mode=self.cfg.margin_mode,
-                                reduce_only=True, pos_side=pos.direction)
+            self.bg.v3_close_order(symbol, pos.qty, pos.direction)
         except Exception as e:
             log.error("平仓失败 %s: %s", symbol, str(e)[:120])
             return {"ok": False, "error": str(e)[:80]}
-        # 撤 TPSL 计划单(list 已修正)
+        # 清理残余 TPSL 策略单(平仓后一般自动撤, 保险起见)
         try:
-            for r in self.bg.pending_plans(symbol) or []:
-                if r.get("planType") in ("pos_loss", "pos_profit"):
-                    self.bg.cancel_plan(symbol, r["orderId"])
+            for s in self.bg.v3_strategy_orders(symbol):
+                if str(s.get("posSide")) == pos.direction:
+                    self.bg.v3_cancel_strategy(symbol, str(s.get("orderId", "")))
         except Exception as e:
-            log.warning("撤 TPSL 计划单失败 %s: %s", symbol, str(e)[:80])
+            log.warning("撤策略单失败 %s: %s", symbol, str(e)[:80])
         time.sleep(2)
         gone = next((p for p in self.positions()
                      if p.symbol == symbol and p.direction == pos.direction), None)
         pnl = 0.0
         if gone is None:
-            pnl = self._estimate_pnl_from_fills(pos)
+            pnl = self.bg.v3_last_closed_pnl(symbol)   # fills 真实已实现盈亏(权威)
         self._state.setdefault("holdings", {}).pop(symbol, None)
         self._state["orders"].append({"ts": time.time(), "symbol": symbol,
-                                      "side": side, "qty": pos.qty, "action": "close",
+                                      "side": "sell" if pos.direction == "long" else "buy",
+                                      "qty": pos.qty, "action": "close",
                                       "reason": reason, "pnl": pnl,
                                       "direction": pos.direction})
         self._save()
-        log.info("[LIVE] 平仓 %s (%s) 估算pnl $%.4f", symbol, reason, pnl)
+        log.info("[LIVE] 平仓 %s (%s) 真实pnl $%.4f", symbol, reason, pnl)
         return {"ok": True, "pnl": pnl, "exit": price or pos.avg_entry}
 
-    def _estimate_pnl_from_fills(self, pos: Position) -> float:
-        """从交易所成交记录(fills API)取真实已实现盈亏。权威对账。"""
-        return self.closed_pnl(pos.symbol)
-
     def closed_pnl(self, symbol: str) -> float:
-        """该 symbol 最近一笔平仓的真实已实现盈亏(fills API, 实盘对账权威)。"""
-        end = int(time.time() * 1000)
-        start = int((time.time() - 7 * 86400) * 1000)
-        try:
-            d = self.bg._request(
-                "GET",
-                f"/api/v2/mix/order/fills?productType=USDT-FUTURES&symbol={symbol}"
-                f"&startTime={start}&endTime={end}",
-            )
-            fills = d.get("fillList", []) if isinstance(d, dict) else (d or [])
-            rows = [f for f in fills if f.get("tradeSide") == "close"]
-            if not rows:
-                return 0.0
-            # 取最近一笔平仓(按 cTime 排序)
-            rows.sort(key=lambda f: int(f.get("cTime", 0) or 0))
-            return float(rows[-1].get("profit", 0) or 0)
-        except Exception as e:
-            log.warning("fills 对账失败 %s: %s", symbol, str(e)[:100])
-            return 0.0
+        """该 symbol 最近一笔平仓的真实已实现盈亏(v3 fills, 实盘对账权威)。"""
+        return self.bg.v3_last_closed_pnl(symbol)
 
     def manage_tpsl(self, symbol: str, sl: float | None, tp: float | None) -> None:
-        """差异>阈值才重挂: 撤旧 plan 再挂新。需已有持仓(否则43023)。"""
+        """修改持仓 TPSL 策略单(差异>阈值才动)。"""
         pos = next((p for p in self.positions() if p.symbol == symbol), None)
         if pos is None:
             log.warning("manage_tpsl 无持仓 %s, 跳过", symbol)
             return
-        pos_side = pos.direction
         try:
-            plan_map = {p.get("planType"): p for p in (self.bg.pending_plans(symbol) or [])}
-        except Exception:
-            plan_map = {}
-        cur_sl, cur_tp = None, None
-        if "pos_loss" in plan_map:
-            cur_sl = float(plan_map["pos_loss"].get("triggerPrice", 0))
-        if "pos_profit" in plan_map:
-            cur_tp = float(plan_map["pos_profit"].get("triggerPrice", 0))
+            stra = [s for s in self.bg.v3_strategy_orders(symbol)
+                    if str(s.get("posSide")) == pos.direction]
+        except Exception as e:
+            log.warning("查策略单失败 %s: %s", symbol, str(e)[:80])
+            return
+        if not stra:
+            log.warning("manage_tpsl %s: 无 TPSL 策略单可改(跳过)", symbol)
+            return
+        oid = str(stra[0].get("orderId", ""))
+        cur_sl = float(stra[0].get("stopLoss") or 0)
+        cur_tp = float(stra[0].get("takeProfit") or 0)
         quote_last = 0.0
         try:
-            quote_last = float(self.bg.quote(symbol).get("lastPr", 0))
+            quote_last = float(self.bg.quote(symbol).get("lastPr", 0) or 0)
         except Exception:
             pass
         diff = self.cfg.stop_repost_diff_pct / 100.0
         if sl and cur_sl and quote_last and abs(sl - cur_sl) / quote_last <= diff:
-            sl = None  # 差异小, 不重挂
+            sl = None
         if tp and cur_tp and quote_last and abs(tp - cur_tp) / quote_last <= diff:
             tp = None
         if not sl and not tp:
             return
-        for plan_type, new_v in (("pos_loss", sl), ("pos_profit", tp)):
-            if new_v is None:
-                continue
-            oid = (plan_map.get(plan_type) or {}).get("orderId", "")
-            try:
-                if oid:
-                    self.bg.cancel_plan(symbol, oid)
-                self.bg.place_tpsl(symbol, plan_type, f"{new_v:.4f}", hold_side=pos_side)
-                log.info("[LIVE] 更新 %s %s → %.4f (holdSide=%s)", symbol, plan_type, new_v, pos_side)
-                h = self._state.setdefault("holdings", {}).get(symbol)
-                if h:
-                    h["sl" if plan_type == "pos_loss" else "tp"] = float(new_v)
-                    self._save()
-            except Exception as e:
-                log.error("更新 TPSL 失败 %s/%s: %s", symbol, plan_type, str(e)[:100])
+        # 止损只收紧不放宽(多头不上移放宽, 空头不下移放宽)
+        if sl and cur_sl:
+            if pos.direction == "long" and sl < cur_sl:
+                sl = None
+            elif pos.direction == "short" and sl > cur_sl:
+                sl = None
+        if not sl and not tp:
+            return
+        try:
+            self.bg.v3_modify_strategy(symbol, oid, stop_loss=sl, take_profit=tp)
+            log.info("[LIVE] 更新 TPSL %s %s → SL=%s TP=%s", symbol, pos.direction, sl, tp)
+            h = self._state.setdefault("holdings", {}).get(symbol)
+            if h:
+                if sl:
+                    h["sl"] = float(sl)
+                if tp:
+                    h["tp"] = float(tp)
+                self._save()
+        except Exception as e:
+            log.error("更新 TPSL 失败 %s: %s", symbol, str(e)[:100])
 
     def closed_trades(self) -> list[dict[str, Any]]:
         return self._state.get("orders", [])

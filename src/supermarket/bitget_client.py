@@ -21,6 +21,7 @@ import httpx
 log = logging.getLogger(__name__)
 
 PRODUCT_TYPE = "USDT-FUTURES"
+CATEGORY = "USDT-FUTURES"   # v3(统一账户)中同义字段名
 MARGIN_COIN = "USDT"
 
 
@@ -211,6 +212,171 @@ class BitgetClient:
                     return list(d[k])
             return []
         return list(d or [])
+
+    # ==================== V3 (统一账户 UTA, 2026-09 实测) ====================
+    # 背景: Bitget 2026-09-15 起批量升级经典账户→统一账户(UTA), 经典 v2 账户/交易
+    # 接口在 UTA 下全部报 40085。行情(v2 market)仍可用; 账户/交易必须走 v3。
+    # 实测要点(全部真金验证过):
+    #   - symbol 同 v2(NVDAUSDT), category=USDT-FUTURES
+    #   - holdMode=hedge_mode: 开多 side=buy+posSide=long; 平多 side=sell+posSide=long
+    #     ⚠️ hedge 模式平仓不能带 reduceOnly(25238)
+    #   - 下单可带 preset TP/SL(stopLoss/takeProfit + slTriggerBy/tpTriggerBy=mark),
+    #     成交后自动转为交易所侧策略单(无裸奔窗口); 平仓后自动撤销
+    #   - 最小下单价值 $5(45110); 数量/价格精度取 instruments(quantityPrecision/pricePrecision)
+    #   - Reality 股票订单限速 5/sec/UID
+
+    def v3_account(self) -> dict[str, Any]:
+        """统一账户资产。可用保证金 = assets[USDT].available。"""
+        d = self._request("GET", "/api/v3/account/assets") or {}
+        eq = float(d.get("accountEquity", 0) or 0)
+        avail = 0.0
+        for a in d.get("assets") or []:
+            if str(a.get("coin", "")).upper() == MARGIN_COIN:
+                avail = float(a.get("available", 0) or 0)
+        return {"equity": eq, "available": avail,
+                "unrealised": float(d.get("unrealisedPnl", 0) or 0), "raw": d}
+
+    def v3_settings(self) -> dict[str, Any]:
+        return self._request("GET", "/api/v3/account/settings") or {}
+
+    def v3_instruments(self, symbol: str | None = None) -> dict[str, dict[str, Any]]:
+        """合约表(缓存)。返回 {symbol: info}。"""
+        if not getattr(self, "_v3_instr_cache", None):
+            path = f"/api/v3/market/instruments?category={CATEGORY}"
+            d = self._request("GET", path)
+            lst = d.get("list") if isinstance(d, dict) else d
+            self._v3_instr_cache = {x["symbol"]: x for x in (lst or [])}
+        if symbol:
+            return {symbol: self._v3_instr_cache.get(symbol, {})}
+        return self._v3_instr_cache
+
+    def v3_precision(self, symbol: str) -> tuple[int, int]:
+        """(数量小数位, 价格小数位)。"""
+        info = (self.v3_instruments(symbol) or {}).get(symbol) or {}
+        return (int(info.get("quantityPrecision", 2) or 2),
+                int(info.get("pricePrecision", 2) or 2))
+
+    def v3_min_order_amount(self, symbol: str) -> float:
+        info = (self.v3_instruments(symbol) or {}).get(symbol) or {}
+        return float(info.get("minOrderAmount", 5) or 5)
+
+    def v3_positions(self) -> list[dict[str, Any]]:
+        """统一账户持仓(只返回有量的)。字段: symbol/posSide/total/available/avgPrice/
+        leverage/marginMode/unrealisedPnl/liquidationPrice/createdTime。"""
+        d = self._request("GET", f"/api/v3/position/current-position?category={CATEGORY}")
+        lst = d.get("list") if isinstance(d, dict) else d
+        out = []
+        for r in lst or []:
+            if float(r.get("total", 0) or 0) <= 0:
+                continue
+            if r.get("posSide") not in ("long", "short"):
+                continue
+            out.append(r)
+        return out
+
+    def v3_set_leverage(self, symbol: str, leverage: int, margin_mode: str = "crossed") -> dict:
+        return self._request("POST", "/api/v3/account/set-leverage", {
+            "category": CATEGORY, "symbol": symbol,
+            "leverage": str(leverage), "marginMode": margin_mode,
+        })
+
+    def v3_place_order(self, symbol: str, side: str, qty: float, pos_side: str = "long",
+                       order_type: str = "market", price: float | None = None,
+                       stop_loss: float | None = None, take_profit: float | None = None,
+                       client_oid: str | None = None) -> dict[str, Any]:
+        """开仓/加仓下单(可带 preset TP/SL)。side: buy/sell; pos_side: long/short。"""
+        qp, pp = self.v3_precision(symbol)
+        body: dict[str, Any] = {
+            "category": CATEGORY, "symbol": symbol, "orderType": order_type,
+            "qty": f"{qty:.{qp}f}", "side": side, "posSide": pos_side,
+            "timeInForce": "gtc",
+        }
+        if order_type == "limit" and price:
+            body["price"] = f"{price:.{pp}f}"
+        if stop_loss:
+            body["stopLoss"] = f"{stop_loss:.{pp}f}"
+            body["slTriggerBy"] = "mark"
+        if take_profit:
+            body["takeProfit"] = f"{take_profit:.{pp}f}"
+            body["tpTriggerBy"] = "mark"
+        if client_oid:
+            body["clientOid"] = client_oid[:32]
+        return self._request("POST", "/api/v3/trade/place-order", body) or {}
+
+    def v3_close_order(self, symbol: str, qty: float, pos_side: str) -> dict[str, Any]:
+        """平仓(hedge 模式: 只传 posSide, ⚠️不能带 reduceOnly → 25238)。"""
+        side = "sell" if pos_side == "long" else "buy"
+        qp, _ = self.v3_precision(symbol)
+        return self._request("POST", "/api/v3/trade/place-order", {
+            "category": CATEGORY, "symbol": symbol, "orderType": "market",
+            "qty": f"{qty:.{qp}f}", "side": side, "posSide": pos_side,
+            "timeInForce": "gtc",
+            "clientOid": f"hclose{int(time.time()*1000)}"[:32],
+        }) or {}
+
+    def v3_cancel_order(self, symbol: str, order_id: str) -> dict:
+        return self._request("POST", "/api/v3/trade/cancel-order", {
+            "category": CATEGORY, "symbol": symbol, "orderId": order_id}) or {}
+
+    def v3_order_info(self, order_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/api/v3/trade/order-info?orderId={order_id}") or {}
+
+    def v3_unfilled_orders(self, symbol: str | None = None) -> list[dict[str, Any]]:
+        path = f"/api/v3/trade/unfilled-orders?category={CATEGORY}"
+        if symbol:
+            path += f"&symbol={symbol}"
+        d = self._request("GET", path)
+        return list((d.get("list") if isinstance(d, dict) else d) or [])
+
+    def v3_strategy_orders(self, symbol: str | None = None) -> list[dict[str, Any]]:
+        """未触发策略单(= 交易所侧 TPSL)。字段: takeProfit/stopLoss/tpTriggerBy/slTriggerBy。"""
+        path = f"/api/v3/trade/unfilled-strategy-orders?category={CATEGORY}"
+        if symbol:
+            path += f"&symbol={symbol}"
+        d = self._request("GET", path)
+        return list((d.get("list") if isinstance(d, dict) else d) or [])
+
+    def v3_cancel_strategy(self, symbol: str, order_id: str) -> dict:
+        return self._request("POST", "/api/v3/trade/cancel-strategy-order", {
+            "category": CATEGORY, "symbol": symbol, "orderId": order_id}) or {}
+
+    def v3_modify_strategy(self, symbol: str, order_id: str,
+                           stop_loss: float | None = None,
+                           take_profit: float | None = None) -> dict:
+        """修改持仓 TPSL 策略单(撤旧+modify)。"""
+        _, pp = self.v3_precision(symbol)
+        body: dict[str, Any] = {"category": CATEGORY, "symbol": symbol, "orderId": order_id}
+        if stop_loss:
+            body["stopLoss"] = f"{stop_loss:.{pp}f}"
+            body["slTriggerBy"] = "mark"
+        if take_profit:
+            body["takeProfit"] = f"{take_profit:.{pp}f}"
+            body["tpTriggerBy"] = "mark"
+        return self._request("POST", "/api/v3/trade/modify-strategy-order", body) or {}
+
+    def v3_fills(self, symbol: str, hours: float = 24) -> list[dict[str, Any]]:
+        """成交明细。字段: execPnl/execPrice/execQty/tradeSide/feeDetail。"""
+        end = int(time.time() * 1000)
+        start = int((time.time() - hours * 3600) * 1000)
+        d = self._request(
+            "GET",
+            f"/api/v3/trade/fills?category={CATEGORY}&symbol={symbol}"
+            f"&startTime={start}&endTime={end}",
+        )
+        return list((d.get("list") if isinstance(d, dict) else d) or [])
+
+    def v3_last_closed_pnl(self, symbol: str) -> float:
+        """最近一笔平仓的真实已实现盈亏(execPnl)。"""
+        try:
+            rows = [f for f in self.v3_fills(symbol, hours=168)
+                    if str(f.get("tradeSide", "")).startswith("close")]
+            if not rows:
+                return 0.0
+            rows.sort(key=lambda f: int(f.get("createdTime", 0) or 0))
+            return float(rows[-1].get("execPnl", 0) or 0)
+        except Exception as e:
+            log.warning("v3 fills 对账失败 %s: %s", symbol, str(e)[:100])
+            return 0.0
 
     def close(self) -> None:
         self._client.close()
