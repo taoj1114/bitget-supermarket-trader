@@ -8,7 +8,7 @@ Type=simple
 WorkingDirectory=/root/workspace/bitget-supermarket-trader
 EnvironmentFile=/root/workspace/bitget-supermarket-trader/.env
 # LIVE_CONFIRM=yes 必须在 .env 中显式设置, 否则引擎直接拒绝启动
-ExecStart=/root/workspace/bitget-supermarket-trader/.venv/bin/python -m supermarket.engine --mode real
+ExecStart=/root/workspace/bitget-supermarket-trader/.venv/bin/python -m supermarket.engine --mode live
 Restart=on-failure
 RestartSec=30
 

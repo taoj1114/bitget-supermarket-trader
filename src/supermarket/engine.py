@@ -47,7 +47,14 @@ class SupermarketEngine:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         load_dotenv(".env")
-        self.state_dir = cfg.state_path
+        base_state = cfg.state_path
+        # 模式状态隔离(2026-09 实盘教训): 实盘/纸面各自独立的 memory/风控/持仓文件,
+        # 否则 paper 历史决策会在实盘启动时被误对账 → 乱补录 + 假熔断
+        if cfg.mode == "real":
+            self.state_dir = base_state / "live"
+            self.state_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            self.state_dir = base_state
         self.bg = BitgetClient(cfg.bitget.base_url, cfg.bitget.api_key,
                                cfg.bitget.secret, cfg.bitget.passphrase)
         self.market = MarketData(self.bg, cfg=self.cfg)
