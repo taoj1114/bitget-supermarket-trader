@@ -417,12 +417,22 @@ class RealExecutor:
         pos = next((p for p in self.positions() if p.symbol == symbol), None)
         if not pos:
             return {"ok": False, "error": "no position"}
-        # 平仓(hedge: 只传 posSide, ⚠️不能带 reduceOnly → 25238)
-        try:
-            self.bg.v3_close_order(symbol, pos.qty, pos.direction)
-        except Exception as e:
-            log.error("平仓失败 %s: %s", symbol, str(e)[:120])
-            return {"ok": False, "error": str(e)[:80]}
+        # 平仓(hedge: 只传 posSide, ⚠️不能带 reduceOnly → 25238) — 失败重试3次
+        last_err = ""
+        for attempt in range(1, 4):
+            try:
+                self.bg.v3_close_order(symbol, pos.qty, pos.direction)
+                last_err = ""
+                break
+            except Exception as e:
+                last_err = str(e)[:120]
+                log.warning("平仓失败(第%d次) %s: %s", attempt, symbol, last_err)
+                if attempt < 3:
+                    time.sleep(2.5)
+        if last_err:
+            log.error("❌ 平仓3次均失败 %s: %s → 下轮重试 + 告警", symbol, last_err)
+            self._alert("CLOSE_FAIL", symbol, last_err)
+            return {"ok": False, "error": last_err[:80]}
         # 清理残余 TPSL 策略单(平仓后一般自动撤, 保险起见)
         try:
             for s in self.bg.v3_strategy_orders(symbol):
@@ -449,6 +459,70 @@ class RealExecutor:
     def closed_pnl(self, symbol: str) -> float:
         """该 symbol 最近一笔平仓的真实已实现盈亏(v3 fills, 实盘对账权威)。"""
         return self.bg.v3_last_closed_pnl(symbol)
+
+    # ---------- 保护自愈 / 告警(2026-09 实盘健壮性) ----------
+
+    def _alert(self, kind: str, symbol: str, detail: str) -> None:
+        """关键异常落盘告警(裸仓/平仓失败等), 供人工查看。"""
+        try:
+            alerts = self._state.setdefault("alerts", [])
+            alerts.append({"ts": time.time(), "kind": kind, "symbol": symbol,
+                           "detail": detail[:200]})
+            del alerts[:-50]           # 只留最近50条
+            self._save()
+        except Exception:
+            pass
+
+    def unprotected_positions(self) -> list[Position]:
+        """持仓中没有 TPSL 策略单保护的(裸仓)。"""
+        out = []
+        try:
+            strat = {}
+            for s in self.bg.v3_strategy_orders():
+                strat.setdefault((s.get("symbol"), s.get("posSide")), s)
+            for p in self.positions():
+                if (p.symbol, p.direction) not in strat:
+                    out.append(p)
+        except Exception as e:
+            log.warning("裸仓检测查询失败: %s", str(e)[:100])
+        return out
+
+    def repair_protection(self, pos: Position, replace: bool = False) -> bool:
+        """给裸仓(或仓量不匹配的仓)补挂 TPSL; 优先本地记录, 否则按均价保守兜底 -2.5%/+4%。"""
+        h = self._hold(pos.symbol)
+        sl = float(h.get("sl", 0) or 0)
+        tp = float(h.get("tp", 0) or 0)
+        if not sl or (pos.direction == "long" and sl >= pos.avg_entry) or \
+           (pos.direction == "short" and sl <= pos.avg_entry):
+            sl = pos.avg_entry * (0.975 if pos.direction == "long" else 1.025)
+        if not tp:
+            tp = pos.avg_entry * (1.04 if pos.direction == "long" else 0.96)
+        if replace:
+            try:
+                for s in self.bg.v3_strategy_orders(pos.symbol):
+                    if str(s.get("posSide")) == pos.direction:
+                        self.bg.v3_cancel_strategy(pos.symbol, str(s.get("orderId", "")))
+            except Exception as e:
+                log.warning("撤旧策略单失败 %s: %s", pos.symbol, str(e)[:80])
+        qp, pp = self.bg.v3_precision(pos.symbol)
+        try:
+            res = self.bg._request("POST", "/api/v3/trade/place-strategy-order", {
+                "category": "USDT-FUTURES", "symbol": pos.symbol,
+                "type": "tpsl", "qty": f"{pos.qty:.{qp}f}", "posSide": pos.direction,
+                "stopLoss": f"{sl:.{pp}f}", "slTriggerBy": "mark",
+                "takeProfit": f"{tp:.{pp}f}", "tpTriggerBy": "mark",
+            })
+            self._alert("PROTECTION_REPAIRED", pos.symbol,
+                        f"qty={pos.qty} SL={sl:.2f} TP={tp:.2f} replace={replace} {res}")
+            log.warning("🔧 保护补挂 %s %s qty=%s SL=%.2f TP=%.2f", pos.symbol, pos.direction, pos.qty, sl, tp)
+            hh = self._state.setdefault("holdings", {}).setdefault(pos.symbol, {})
+            hh.update({"sl": sl, "tp": tp, "direction": pos.direction})
+            self._save()
+            return True
+        except Exception as e:
+            log.error("❌ 保护补挂失败 %s: %s", pos.symbol, str(e)[:120])
+            self._alert("PROTECTION_REPAIR_FAIL", pos.symbol, str(e)[:150])
+            return False
 
     def manage_tpsl(self, symbol: str, sl: float | None, tp: float | None) -> None:
         """修改持仓 TPSL 策略单(差异>阈值才动)。"""

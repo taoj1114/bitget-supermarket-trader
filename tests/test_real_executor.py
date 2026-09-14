@@ -25,8 +25,8 @@ class FakeBG:
         self.calls: list[tuple] = []
         self.has_position = has_position
         self._open = False
-        self.strategy = [{"orderId": "strat-1", "posSide": "long",
-                          "stopLoss": "95", "takeProfit": "110"}]
+        self.strategy = [{"orderId": "strat-1", "symbol": "NVDAUSDT", "posSide": "long",
+                          "stopLoss": "95", "takeProfit": "110", "qty": "1.0"}]
 
     # ---- v3 接口 ----
     def v3_account(self):
@@ -168,3 +168,69 @@ def test_positions_fill_precision_and_batches():
                                          "direction": "long"}
     p = ex.positions()[0]
     assert p.volume_place == 2 and p.batches == 2 and p.sl == 95.0
+
+
+# ---------- 健壮性: 保护自愈 / 平仓重试 / 告警 ----------
+
+def test_unprotected_position_detected_and_repaired():
+    """裸仓检测 + 自动补挂 TPSL(实盘安全网)。"""
+    ex, bg, _td = make_exec()
+    bg._open = True
+    bg.strategy = []                       # 模拟策略单丢失 → 裸仓
+    bare = ex.unprotected_positions()
+    assert len(bare) == 1 and bare[0].symbol == "NVDAUSDT"
+
+    calls = []
+
+    def fake_request(method, path, body=None, **kw):
+        calls.append((method, path, body))
+        return {"orderId": "repaired-1"}
+
+    bg._request = fake_request
+    ok = ex.repair_protection(bare[0])
+    assert ok is True
+    placement = [c for c in calls if "place-strategy-order" in c[1]]
+    assert placement, "应调用 place-strategy-order"
+    body = placement[0][2]
+    assert body["type"] == "tpsl", body          # 实测枚举: tpsl
+    assert body["posSide"] == "long" and float(body["stopLoss"]) > 0
+    # 告警落盘
+    assert any(a["kind"] == "PROTECTION_REPAIRED" for a in ex._state.get("alerts", []))
+
+
+def test_protected_position_not_flagged():
+    ex, bg, _td = make_exec()
+    bg._open = True
+    assert ex.unprotected_positions() == []      # 有策略单 → 不报裸仓
+
+
+def test_close_retries_then_succeeds():
+    """平仓前两次失败, 第三次成功(实盘: 网络抖动不应丢平仓)。"""
+    ex, bg, _td = make_exec()
+    bg._open = True
+    attempts = {"n": 0}
+
+    def flaky_close(symbol, qty, pos_side):
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise RuntimeError("network timeout")
+        bg._open = False
+        return {"orderId": "close-ok"}
+
+    bg.v3_close_order = flaky_close
+    res = ex.close("NVDAUSDT", reason="AI_CLOSE")
+    assert res["ok"] is True and attempts["n"] == 3
+
+
+def test_close_failure_alerts():
+    """平仓3次全失败 → 告警落盘 + 返回失败(下轮重试)。"""
+    ex, bg, _td = make_exec()
+    bg._open = True
+
+    def always_fail(symbol, qty, pos_side):
+        raise RuntimeError("exchange down")
+
+    bg.v3_close_order = always_fail
+    res = ex.close("NVDAUSDT", reason="AI_CLOSE")
+    assert res["ok"] is False
+    assert any(a["kind"] == "CLOSE_FAIL" for a in ex._state.get("alerts", []))

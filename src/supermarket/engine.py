@@ -146,6 +146,37 @@ class SupermarketEngine:
             self.risk.on_close(pnl)
             log.info("对账: %s 已被外部平仓, 补录 pnl $%.4f", sym, pnl)
 
+    def _ensure_protection(self) -> None:
+        """保护自愈(实盘安全网): 裸仓补挂 TPSL + 策略单量不匹配时重挂覆盖全仓。
+
+        实盘首日的健壮性缺口: 开仓时 TPSL 若挂失败/被异常撤销/加仓后量不匹配,
+        持仓就会失去交易所侧保护 —— 这里每轮自动检测并修复。
+        """
+        if not hasattr(self.executor, "unprotected_positions"):
+            return  # paper 模式无需(本地 TPSL 模拟)
+        try:
+            for p in self.executor.unprotected_positions():
+                log.error("⚠️ 裸仓(无 TPSL 保护) %s %s qty=%s → 自动补挂", p.symbol, p.direction, p.qty)
+                self.executor.repair_protection(p)
+            try:
+                strat = {(s.get("symbol"), str(s.get("posSide"))): s
+                         for s in self.bg.v3_strategy_orders()}
+            except Exception:
+                strat = {}
+            for p in self.executor.positions():
+                s = strat.get((p.symbol, p.direction))
+                if not s:
+                    continue
+                try:
+                    sq = float(s.get("qty", 0) or 0)
+                except (TypeError, ValueError):
+                    continue
+                if sq and abs(sq - p.qty) > max(0.01, p.qty * 0.02):
+                    log.warning("策略单量(%s)≠持仓(%s) %s → 重挂覆盖全仓", sq, p.qty, p.symbol)
+                    self.executor.repair_protection(p, replace=True)
+        except Exception as e:
+            log.warning("保护自愈异常: %s", str(e)[:120])
+
     # ---------- 2. 管仓 ----------
     def _manage_positions(self, account: dict) -> None:
         positions = self.executor.positions()
@@ -357,6 +388,7 @@ class SupermarketEngine:
                     pos = self.executor.open(sym, params, quote)
                 except Exception as e:
                     log.error("开仓失败 %s: %s", sym, str(e)[:100])
+                    self.memory.record_hold(sym, f"OPEN_FAIL: {str(e)[:80]}", session)
                     continue
                 action_label = "BUY" if side == "long" else "SELL"
                 self.memory.record_open(
@@ -395,6 +427,7 @@ class SupermarketEngine:
             log.warning("行情驱动 tick 异常: %s", str(e)[:100])
         # tick 平掉的仓立即补录(不拖到下一轮): 防 crash 丢失 + 复盘即时
         self._reconcile()
+        self._ensure_protection()
         self._manage_positions(account)
         self._scan(account)
         snap = self._snapshot(account)
