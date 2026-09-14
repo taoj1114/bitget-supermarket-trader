@@ -126,11 +126,14 @@ class SupermarketEngine:
                     price = float(self.bg.quote(sym).get("lastPr", 0))
                 except Exception:
                     pass
-                entry = float(d.get("entry", 0))
-                if entry > 0 and price > 0:
-                    pnl = (price - entry) / entry * float((d.get("params") or {}).get("notional", 0))
-                else:
-                    pnl = 0.0
+                pnl = 0.0
+                # 实盘优先: fills API 的真实已实现盈亏(权威对账)
+                if hasattr(self.executor, "closed_pnl"):
+                    pnl = float(self.executor.closed_pnl(sym))
+                if pnl == 0.0:
+                    entry = float(d.get("entry", 0))
+                    if entry > 0 and price > 0:
+                        pnl = (price - entry) / entry * float((d.get("params") or {}).get("notional", 0))
             self.memory.close_decision(sym, price, pnl, "EXCHANGE_SLTP(对账补录)",
                                        max_pnl_pct=float(d.get("max_pnl_pct", 0)))
             self.risk.on_close(pnl)
@@ -438,8 +441,10 @@ def main() -> None:
 
     if cfg.mode == "real":
         acc = eng._account()
-        if float(acc.get("equity", 0)) <= 0:
-            sys.exit("实盘账户余额为 0, 禁止启动. 请先充值。")
+        eq_now = float(acc.get("equity", 0))
+        if eq_now < 1.0:
+            sys.exit(f"实盘账户余额不足 $1(当前 {eq_now:.8f}), 禁止启动. "
+                     f"请先充值 $20~50(尘埃值不算余额)。")
 
     if args.once:
         eng.run_once()

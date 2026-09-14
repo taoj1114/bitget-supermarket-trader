@@ -153,17 +153,20 @@ class BitgetClient:
         return data or []
 
     def set_leverage(self, symbol: str, leverage: int, hold_side: str = "long") -> None:
+        """双向模式(hedge)下 holdSide=long/short; 必须带 productType(实测缺则400172)。"""
         self._request("POST", "/api/v2/mix/account/set-leverage", {
-            "symbol": symbol, "marginCoin": MARGIN_COIN,
+            "symbol": symbol, "marginCoin": MARGIN_COIN, "productType": PRODUCT_TYPE,
             "leverage": str(leverage), "holdSide": hold_side,
         })
 
     def place_order(self, symbol: str, side: str, size: str, order_type: str = "market",
                     leverage: int = 20, price: str | None = None,
-                    margin_mode: str = "crossed", reduce_only: bool = False) -> dict[str, Any]:
+                    margin_mode: str = "crossed", reduce_only: bool = False,
+                    pos_side: str = "long") -> dict[str, Any]:
+        """pos_side: 双向持仓模式的仓位方向(long/short), 开仓和平仓都必须传。"""
         body: dict[str, Any] = {
             "symbol": symbol, "marginCoin": MARGIN_COIN, "productType": PRODUCT_TYPE,
-            "marginMode": margin_mode, "posSide": "long", "side": side,
+            "marginMode": margin_mode, "posSide": pos_side, "side": side,
             "orderType": order_type, "size": str(size), "leverage": str(leverage),
         }
         if price:
@@ -190,12 +193,24 @@ class BitgetClient:
         return self._request("POST", "/api/v2/mix/order/cancel-plan-order",
                              {"symbol": symbol, "marginCoin": MARGIN_COIN, "orderId": order_id})
 
-    def pending_plans(self, symbol: str | None = None) -> list[dict[str, Any]]:
-        """未触发 TPSL 计划单。symbol 为空查全市场。"""
-        path = f"/api/v2/mix/order/orders-pending?productType={PRODUCT_TYPE}"
+    def pending_plans(self, symbol: str | None = None,
+                      plan_type: str = "profit_loss") -> list[dict[str, Any]]:
+        """未触发 TPSL 计划单(返回 list)。实测: planType 必填, TPSL 类型名为 profit_loss。"""
+        path = (f"/api/v2/mix/order/orders-plan-pending?productType={PRODUCT_TYPE}"
+                f"&planType={plan_type}")
         if symbol:
             path += f"&symbol={symbol}"
-        return self._request("GET", path)
+        try:
+            d = self._request("GET", path)
+        except Exception as e:
+            log.warning("pending_plans 查询失败: %s", str(e)[:80])
+            return []
+        if isinstance(d, dict):
+            for k in ("entrustedList", "planList", "list"):
+                if d.get(k):
+                    return list(d[k])
+            return []
+        return list(d or [])
 
     def close(self) -> None:
         self._client.close()
