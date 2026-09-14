@@ -411,6 +411,12 @@ class RealExecutor:
         self._save()
         log.info("[LIVE] 开仓 %s %s @$%.4f qty=%.4f SL=%s TP=%s 订单%s TPSL%s",
                  symbol, direction, pos.avg_entry, pos.qty, sl, tp, oid, tpsl_ids)
+        try:
+            from supermarket import notify
+            notify.trade_open(symbol, direction, pos.avg_entry, pos.qty, sl, tp,
+                              batches=int(self._state["holdings"][symbol].get("batches", 1)))
+        except Exception:
+            pass
         return pos
 
     def close(self, symbol: str, reason: str = "AI_CLOSE", price: float | None = None) -> dict[str, Any]:
@@ -454,6 +460,11 @@ class RealExecutor:
                                       "direction": pos.direction})
         self._save()
         log.info("[LIVE] 平仓 %s (%s) 真实pnl $%.4f", symbol, reason, pnl)
+        try:
+            from supermarket import notify
+            notify.trade_close(symbol, pos.direction, pnl, reason)
+        except Exception:
+            pass
         return {"ok": True, "pnl": pnl, "exit": price or pos.avg_entry}
 
     def closed_pnl(self, symbol: str) -> float:
@@ -463,13 +474,18 @@ class RealExecutor:
     # ---------- 保护自愈 / 告警(2026-09 实盘健壮性) ----------
 
     def _alert(self, kind: str, symbol: str, detail: str) -> None:
-        """关键异常落盘告警(裸仓/平仓失败等), 供人工查看。"""
+        """关键异常: 落盘告警 + Telegram 推送(裸仓/平仓失败等)。"""
         try:
             alerts = self._state.setdefault("alerts", [])
             alerts.append({"ts": time.time(), "kind": kind, "symbol": symbol,
                            "detail": detail[:200]})
             del alerts[:-50]           # 只留最近50条
             self._save()
+        except Exception:
+            pass
+        try:
+            from supermarket import notify
+            notify.alert(kind, symbol, detail)
         except Exception:
             pass
 

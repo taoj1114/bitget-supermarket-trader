@@ -145,6 +145,12 @@ class SupermarketEngine:
                                        max_pnl_pct=float(d.get("max_pnl_pct", 0)))
             self.risk.on_close(pnl)
             log.info("对账: %s 已被外部平仓, 补录 pnl $%.4f", sym, pnl)
+            try:
+                from supermarket import notify
+                notify.trade_close(sym, str(d.get("action", "")).lower() or "long",
+                                   pnl, "交易所侧TPSL触发(对账补录)")
+            except Exception:
+                pass
 
     def _ensure_protection(self) -> None:
         """保护自愈(实盘安全网): 裸仓补挂 TPSL + 策略单量不匹配时重挂覆盖全仓。
@@ -301,7 +307,15 @@ class SupermarketEngine:
         paused = self.risk.paused()
         if paused:
             log.info("熔断: %s", paused)
+            if not getattr(self, "_was_paused", False):
+                try:
+                    from supermarket import notify
+                    notify.risk_event(f"熔断触发: {paused}")
+                except Exception:
+                    pass
+            self._was_paused = True
             return
+        self._was_paused = False
         # 天气门(硬约束): SPY 24h 跌>3% = 系统性雨天, 禁开新仓(已有库存照常管)
         try:
             spyq = self.bg.quote("SPYUSDT")
@@ -309,6 +323,12 @@ class SupermarketEngine:
             if spy_chg <= self.cfg.spy_drop_gate_pct:
                 log.warning("天气门: SPY 24h %.2f%% ≤ %.1f%%, 当日禁开新仓",
                             spy_chg, self.cfg.spy_drop_gate_pct)
+                try:
+                    from supermarket import notify
+                    notify.risk_event(f"天气门触发: SPY 24h {spy_chg:+.2f}% ≤ "
+                                      f"{self.cfg.spy_drop_gate_pct}% → 当日禁开新仓")
+                except Exception:
+                    pass
                 return
         except Exception:
             pass  # 拿不到 SPY 不阻塞(如网络抖动)
