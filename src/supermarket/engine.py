@@ -424,6 +424,9 @@ def main() -> None:
     cfg = Config.load(args.config)
     if args.mode:
         cfg.mode = args.mode
+    # 归一化: live 视为 real(service 文件用 --mode live; 只认 "real" 会让实盘跑成纸面)
+    if str(cfg.mode).lower() in ("live", "real"):
+        cfg.mode = "real"
     if args.interval:
         cfg.scan_interval = args.interval
 
