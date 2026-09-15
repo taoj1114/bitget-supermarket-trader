@@ -498,6 +498,17 @@ def main() -> None:
 
     log.info("=== bitget-supermarket-trader v%s mode=%s ===", __version__, cfg.mode)
     eng = SupermarketEngine(cfg)
+    if cfg.mode == "real":
+        try:
+            from supermarket import notify
+            acc0 = eng._account()
+            pos0 = eng.executor.positions()
+            notify.send(f"🟢 <b>超市实盘服务已启动</b>\n"
+                        f"权益 ${float(acc0.get('equity', 0)):.2f} | 持仓 {len(pos0)} 个"
+                        f"{'（' + ','.join(p.symbol for p in pos0) + '）' if pos0 else ''}\n"
+                        f"策略: 进货四道门 / 有盈利就卖 / 结构未坏拿住 / 天气门")
+        except Exception:
+            pass
 
     if not cfg.bitget.ready:
         sys.exit("Bitget 密钥未配置 (config.yaml → .env 的 BITGET_* 变量)")
