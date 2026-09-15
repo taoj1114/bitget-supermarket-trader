@@ -93,7 +93,7 @@ class Config:
     max_short_positions: int = 2
     max_batches_per_symbol: int = 3   # 分批建仓上限(超市补货: $2×3=6保证金/标的)
     spy_drop_gate_pct: float = -3.0   # 天气门: SPY 24h 跌幅超过此值 → 当日禁开新仓
-    min_turnover_floor: float = 5_000_000.0
+    min_turnover_floor: float = 300_000.0
     # K线取量(按周期需求定, 非统一200): 5m=入场时机(8h覆盖) 1H=趋势(10天)
     # 4H=中趋势(50天) 1D=方向权威(90=Bitget上限) 1W=季节视角(13=上限)
     kline_limits: dict[str, int] = field(

@@ -270,6 +270,10 @@ class SupermarketEngine:
 
     # ---------- 3. 扫描开仓 ----------
     def _pick_candidates(self, account: dict) -> list[str]:
+        """候选构成: 持仓(补货/管理) + 热门前2 + 异动前3 + 轮转补齐(按成交额排序, 指针推进)。
+
+        2026-09 修复: 原流动性门槛$5M+hot前3导致候选枯竭(池211只实际只扫6只, 轮转永不推进)。
+        """
         held = [p.symbol for p in self.executor.positions()]
         try:
             tickers = self.market.tickers()
@@ -291,13 +295,17 @@ class SupermarketEngine:
         hot = [s for s in self.cfg.hot_symbols if s in valid]
         movers = sorted((s for s in valid if s not in hot), key=lambda s: -chg.get(s, 0))[:3]
         rest = sorted((s for s in valid if s not in hot and s not in movers), key=lambda s: -vol[s])
-        # 已持仓标的一起入轮(看得见才能决定加仓/减仓/补货)
-        out = list(held[:8]) + hot[:3] + movers
+        # 已持仓标的一起入轮(看得见才能决定加仓/减仓/补货), 但不超过6个
+        out = list(held[:6]) + hot[:2] + movers
         n = self.cfg.max_symbols_per_round - len(out)
         if n > 0 and rest:
             rotated = rest[self._scan_rotate:] + rest[:self._scan_rotate]
-            out += rotated[:n]
-            self._scan_rotate = (self._scan_rotate + n) % max(len(rest), 1)
+            picked = rotated[:n]
+            out += picked
+            self._scan_rotate = (self._scan_rotate + len(picked)) % max(len(rest), 1)
+            log.info("候选轮转: 池%d只(持仓%d/热门%d/异动%d/轮转%d, 指针→%d)",
+                     len(valid) + len(held), len(out[:len(held)]), 2, len(movers),
+                     len(picked), self._scan_rotate)
         return out
 
     def _scan(self, account: dict) -> None:
