@@ -316,6 +316,10 @@ class SupermarketEngine:
             self._was_paused = True
             return
         self._was_paused = False
+        # 人工暂停开关(/pause 指令写入 pause.flag)
+        if (self.state_dir / "pause.flag").exists():
+            log.info("已暂停开新仓(/resume 恢复), 跳过扫描")
+            return
         # 天气门(硬约束): SPY 24h 跌>3% = 系统性雨天, 禁开新仓(已有库存照常管)
         try:
             spyq = self.bg.quote("SPYUSDT")
@@ -503,12 +507,22 @@ def main() -> None:
             from supermarket import notify
             acc0 = eng._account()
             pos0 = eng.executor.positions()
-            notify.send(f"🟢 <b>超市实盘服务已启动</b>\n"
-                        f"权益 ${float(acc0.get('equity', 0)):.2f} | 持仓 {len(pos0)} 个"
-                        f"{'（' + ','.join(p.symbol for p in pos0) + '）' if pos0 else ''}\n"
-                        f"策略: 进货四道门 / 有盈利就卖 / 结构未坏拿住 / 天气门")
+            notify.send(
+                "🟢 超市实盘服务已启动"
+                f"\n权益 ${float(acc0.get('equity', 0)):.2f} | 持仓 {len(pos0)} 个"
+                f"{'（' + ','.join(p.symbol for p in pos0) + '）' if pos0 else ''}"
+                f"\n策略: 进货四道门 / 有盈利就卖 / 结构未坏拿住 / 天气门"
+                f"\n发送 /help 查看指令")
         except Exception:
             pass
+        try:
+            import threading
+            from supermarket.telegram_bot import TelegramCommander, install_menu
+            install_menu()
+            threading.Thread(target=TelegramCommander(eng).run_forever,
+                             daemon=True, name="tg-commander").start()
+        except Exception as e:
+            log.warning("Telegram 指令线程启动失败(不影响交易): %s", str(e)[:100])
 
     if not cfg.bitget.ready:
         sys.exit("Bitget 密钥未配置 (config.yaml → .env 的 BITGET_* 变量)")
