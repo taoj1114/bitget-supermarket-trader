@@ -133,6 +133,7 @@ class MarketData:
             df = klines_to_df(self.klines(symbol, "1D", 60))
             if df is None or len(df) < 30:
                 return None
+            df = df.iloc[:-1]  # 只用已收盘日线(方向判断避免盘中抖动)
             ind = compute_indicators(df, primary=False)
             return ind.regime, float(ind.adx)
         except Exception as e:
@@ -151,6 +152,9 @@ class MarketData:
         df1h = klines_to_df(self.klines(symbol, "1H", lim.get("1H")))
         df4h = klines_to_df(self.klines(symbol, "4H", lim.get("4H")))
         df1d = klines_to_df(self.klines(symbol, "1D", lim.get("1D")))
+        # 日线方向权威必须基于"已收盘日线": 进行中的最后一根会让 regime/ADX 盘中抖动
+        # (2026-09 实证: SPCX 盘中显示 trend_down → AI 平仓亏$0.33, 当日收盘实为 trend_up ADX27.4)
+        df1d_done = df1d.iloc[:-1] if len(df1d) > 30 else df1d
         # 1W 周线=季节增强, 失败降级为空(不阻塞扫描)
         df1w = pd.DataFrame()
         try:
@@ -161,7 +165,7 @@ class MarketData:
         ind5 = compute_indicators(df5, primary=True)
         ind1h = compute_indicators(df1h, primary=False)
         ind4h = compute_indicators(df4h, primary=True)
-        ind1d = compute_indicators(df1d, primary=True)  # 日线是方向权威, 指标全量
+        ind1d = compute_indicators(df1d_done, primary=True)  # 日线方向权威=已收盘, 指标全量
 
         trend = trend_shape(df5)
         if not manage:
@@ -187,7 +191,7 @@ class MarketData:
         # 数据支撑(44标的×2271事件): 深跌后83%概率不再亏超15%, 但7%尾部须止损纪律
         deep_dip = ""
         if not manage:
-            ok_dd, dd_info = deep_dip_reversal(df1d)
+            ok_dd, dd_info = deep_dip_reversal(df1d_done)
             if ok_dd:
                 deep_dip = dd_info
 
@@ -211,9 +215,9 @@ class MarketData:
         rs20 = 0.0
         pos20 = 0.0
         try:
-            if len(df1d) >= 20:
-                dhi = float(df1d["high"].tail(20).max())
-                dlo = float(df1d["low"].tail(20).min())
+            if len(df1d_done) >= 20:
+                dhi = float(df1d_done["high"].tail(20).max())
+                dlo = float(df1d_done["low"].tail(20).min())
                 ma30 = ind1d.ma30
                 last_px = float(quote.get("lastPr", 0) or 0)
                 dev = (last_px / ma30 - 1) * 100 if ma30 and last_px else 0.0
@@ -264,7 +268,7 @@ class MarketData:
             ind_5m_line=render_ind(ind5, "5m(短线时机):"),
             ind_1h_line=render_ind(ind1h, "1H(趋势):"),
             ind_4h_line=render_ind(ind4h, "4H(中趋势):"),
-            ind_1d_line=render_ind(ind1d, "日线(定方向!):"),
+            ind_1d_line=render_ind(ind1d, "日线(已收, 定方向!):"),
             trend=trend,
             orderbook=orderbook,
             funding=funding,

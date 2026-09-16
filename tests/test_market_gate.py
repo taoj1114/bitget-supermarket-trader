@@ -56,3 +56,11 @@ def test_aiinput_has_rs_and_pos_fields():
     from supermarket.market import AIInput
     fields = AIInput.__dataclass_fields__
     assert "rs20" in fields and "pos20" in fields
+
+
+def test_daily_direction_uses_closed_candles():
+    """日线方向必须基于已收盘K线(进行中的最后一根会致 regime 盘中抖动, 曾致误平仓)。"""
+    src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "market.py").read_text()
+    assert "df1d_done" in src, "build_input 应剔除进行中的日线"
+    assert "df.iloc[:-1]" in src, "daily_regime 应剔除进行中的日线"
+    assert "日线(已收, 定方向!)" in src, "渲染标签应标明已收盘"
