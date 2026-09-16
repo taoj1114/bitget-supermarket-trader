@@ -344,6 +344,31 @@ class SupermarketEngine:
                 return
         except Exception:
             pass  # 拿不到 SPY 不阻塞(如网络抖动)
+        # 大盘趋势门控(硬约束, 2026-09 用户实证): SPY 日线明确向下 → 禁开多仓
+        # 理由: 天气门只挡单日暴跌, 挡不住"阴跌"里反复抄反弹→认错小亏的累积(实测两笔 -$0.79)
+        self._market_down = False
+        self._market_note = ""
+        try:
+            mr = self.market.daily_regime("SPYUSDT")
+            if mr:
+                reg, madx = mr
+                self._market_note = f"SPY日线{reg}(ADX{madx:.0f})"
+                if reg == "trend_down" and madx >= self.cfg.market_down_adx:
+                    self._market_down = True
+                    log.warning("大盘趋势门控: %s → 禁开多仓(空单/深跌反转例外)", self._market_note)
+                    if not getattr(self, "_market_down_notified", False):
+                        self._market_down_notified = True
+                        try:
+                            from supermarket import notify
+                            notify.risk_event(f"大盘趋势门控: {self._market_note} → 禁开多仓"
+                                              f"(空单/深跌反转例外仍允许)")
+                        except Exception:
+                            pass
+                else:
+                    self._market_down_notified = False
+        except Exception as e:
+            log.debug("大盘趋势门控检测失败: %s", str(e)[:60])
+
         candidates = self._pick_candidates(account)
         lessons = self.memory.lessons
         session = __import__("supermarket.market", fromlist=["us_session"]).us_session()
@@ -396,6 +421,9 @@ class SupermarketEngine:
                 # 例外: 深跌40%+且企稳的热门票允许 BUY(用户场景 2026-09, 低风险尝试)
                 if side == "long" and inp.deep_dip:
                     ok_dir, dir_reason = True, f"深跌反转信号例外放行({inp.deep_dip})"
+                elif side == "long" and getattr(self, "_market_down", False):
+                    ok_dir, dir_reason = False, (f"大盘日线向下({self._market_note}), 禁开多仓"
+                                                 f"(空单/深跌反转例外)")
                 else:
                     ok_dir, dir_reason = self.risk.validate_daily_direction(
                         inp.daily_regime, inp.daily_adx, side)

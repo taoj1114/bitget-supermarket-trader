@@ -92,6 +92,7 @@ class Config:
     max_positions_divisor: int = 10  # 保留(兼容); 实际仓数由 risk.py 按 净值×6÷每仓 推导
     max_short_positions: int = 2
     max_batches_per_symbol: int = 3   # 分批建仓上限(超市补货: $2×3=6保证金/标的)
+    market_down_adx: float = 25.0     # 大盘趋势门控: SPY日线ADX≥此值且趋势向下 → 禁开多仓
     spy_drop_gate_pct: float = -3.0   # 天气门: SPY 24h 跌幅超过此值 → 当日禁开新仓
     min_turnover_floor: float = 300_000.0
     # K线取量(按周期需求定, 非统一200): 5m=入场时机(8h覆盖) 1H=趋势(10天)
@@ -102,7 +103,7 @@ class Config:
     sl_max_pct: float = 15.0
     min_rr: float = 1.5
     stop_repost_diff_pct: float = 0.2
-    max_daily_drawdown_pct: float = 30.0
+    max_daily_drawdown_pct: float = 5.0    # 当日亏损≥净值5% → 停开新仓(原30%过宽)
     max_consecutive_losses: int = 3
     pause_after_loss_minutes: int = 120
     symbol_pool: str | list[str] = "AUTO"
@@ -148,7 +149,7 @@ class Config:
             sl_max_pct=float(g("sl_max_pct", 15.0)),
             min_rr=float(g("min_rr", 1.5)),
             stop_repost_diff_pct=float(g("stop_repost_diff_pct", 0.2)),
-            max_daily_drawdown_pct=float(g("max_daily_drawdown_pct", 30.0)),
+            max_daily_drawdown_pct=float(g("max_daily_drawdown_pct", 5.0)),
             max_consecutive_losses=int(g("max_consecutive_losses", 3)),
             pause_after_loss_minutes=int(g("pause_after_loss_minutes", 120)),
             symbol_pool=g("symbol_pool", "AUTO"),

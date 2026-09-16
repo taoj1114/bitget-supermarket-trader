@@ -125,6 +125,18 @@ class MarketData:
         self._ticker_cache = (now, ticks)
         return ticks
 
+    def daily_regime(self, symbol: str = "SPYUSDT") -> tuple[str, float] | None:
+        """轻量取日线 regime/adx(供大盘趋势门控用, 不构建完整 AI 输入)。"""
+        try:
+            df = klines_to_df(self.klines(symbol, "1D", 60))
+            if df is None or len(df) < 30:
+                return None
+            ind = compute_indicators(df, primary=False)
+            return ind.regime, float(ind.adx)
+        except Exception as e:
+            log.debug("daily_regime %s 失败: %s", symbol, str(e)[:60])
+            return None
+
     def build_input(self, symbol: str, quote: dict[str, Any],
                     account: dict[str, Any], history: str = "",
                     lessons: list[str] | None = None,

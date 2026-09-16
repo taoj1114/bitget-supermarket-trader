@@ -16,7 +16,8 @@ max_notional_mult: 6.0       # 总名义(多+空合计) ≤ 账户净值 × 6  (
 max_positions_divisor: 10    # 兼容字段(实际仓数 by risk.py 净值×6÷每仓, 硬顶6)
 max_short_positions: 2       # 空头最大仓数(用户: 只给一两个, 提供对冲)
 max_batches_per_symbol: 3    # 分批建仓上限(超市补货, 加仓不占标的名额)
-spy_drop_gate_pct: -3.0      # 天气门: SPY 24h 跌超此值 → 当日禁开新仓
+spy_drop_gate_pct: -3.0      # 天气门: SPY 24h 跌>3% → 当日禁开新仓
+market_down_adx: 25.0        # 大盘趋势门控: SPY日线ADX≥25且向下 → 禁开多仓(空单例外)      # 天气门: SPY 24h 跌超此值 → 当日禁开新仓
 # K线取量按周期需求定(非统一200): 5m=入场时机8h 1H=趋势10天 4H=中趋势50天 1D=方向权威(上限90) 1W=季节视角(上限13)
 kline_limits:
   5m: 100
@@ -29,7 +30,7 @@ sl_min_pct: 2.0              # 止损距离下限 %(太近=噪音被扫; 超市�
 sl_max_pct: 15.0             # 止损距离上限 %(用户: 跌10-15%可接受; 超过=失控认错)
 min_rr: 1.5                  # 止盈/止损 距离比下限
 stop_repost_diff_pct: 0.2    # SL/TP 变化>0.2% 才重挂交易所 TPSL
-max_daily_drawdown_pct: 30.0 # 日亏损 ≥30% 净值 → 当日禁开新仓
+max_daily_drawdown_pct: 5.0  # 日亏损 ≥5% 净值 → 当日禁开新仓(2026-09收紧: 原30%要连亏6次才触发)
 max_consecutive_losses: 3    # 连亏3 → 暂停
 pause_after_loss_minutes: 120
 
