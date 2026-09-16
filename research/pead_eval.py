@@ -88,13 +88,13 @@ def main() -> None:
         for r in rows:
             tk = r["symbol"]
             if tk in by_ticker:
-                events.setdefault(tk, []).append(ds)
+                events.setdefault(tk, []).append((ds, parse_surprise(r.get("surprise"))))
         time.sleep(0.2)
     print(f"  查询 {n_days} 天, 命中池内公司 {len(events)} 家, "
           f"事件 {sum(len(v) for v in events.values())} 个")
 
     # 2) 用日线算财报后收益
-    res = []   # (ticker, 日期, fwd1, fwd3, fwd5)
+    res = []   # (ticker, 日期, fwd1, fwd3, fwd5, surprise)
     for tk, dates in events.items():
         sym = by_ticker[tk]
         try:
@@ -104,7 +104,7 @@ def main() -> None:
             cl = [float(x) for x in df["close"].tolist()]
             ts = [int(x) for x in df["ts"].tolist()]
             day_list = [time.strftime("%Y-%m-%d", time.gmtime(t / 1000)) for t in ts]
-            for ds in dates:
+            for ds, sv in dates:
                 if ds not in day_list:
                     continue
                 i = day_list.index(ds)
@@ -113,7 +113,7 @@ def main() -> None:
                 f1 = (cl[i + 1] / cl[i] - 1) * 100
                 f3 = (cl[i + 3] / cl[i] - 1) * 100
                 f5 = (cl[i + 5] / cl[i] - 1) * 100
-                res.append((tk, ds, f1, f3, f5))
+                res.append((tk, ds, f1, f3, f5, sv))
         except Exception:
             continue
     print(f"可计算收益的财报事件: {len(res)} 个")
@@ -124,6 +124,31 @@ def main() -> None:
         print("样本不足(<30), 无法得出结论")
         lines.append("\n样本不足, 无法得出结论")
     else:
+        # 惊喜分档(None 安全排序)
+        groups: dict[str, list[float]] = {}
+        for row in res:
+            sv = row[5]
+            b = ("无数据" if sv is None else
+                 "超预期>5%" if sv > 5 else "超预期0~5%" if sv > 0 else
+                 "低于预期0~-5%" if sv > -5 else "低于预期<-5%")
+            groups.setdefault(b, []).append(row[4])
+        print("\n【按盈利惊喜分档 → fwd5】")
+        lines.append("\n## 按盈利惊喜分档(fwd5)")
+        for b in ("超预期>5%", "超预期0~5%", "低于预期0~-5%", "低于预期<-5%", "无数据"):
+            v = groups.get(b, [])
+            if len(v) >= 20:
+                print(f"  {b:14s} n={len(v):4d} 均值 {statistics.mean(v):+.2f}% 胜率 {win(v)}%")
+                lines.append(f"- {b}: n={len(v)}, 均值 {statistics.mean(v):+.2f}%, 胜率 {win(v)}%")
+        # 多时段(前半/后半, 按日期排序需避开 None)
+        res_sorted = sorted(res, key=lambda r: (r[1], r[0]))
+        half = len(res_sorted) // 2
+        print("\n【多时段】")
+        for lbl, sub in (("前半段", res_sorted[:half]), ("后半段", res_sorted[half:])):
+            v = [r[4] for r in sub]
+            if v:
+                print(f"  {lbl} n={len(v)} 均值 {statistics.mean(v):+.2f}% 胜率 {win(v)}%")
+                lines.append(f"- {lbl}: n={len(v)}, 均值 {statistics.mean(v):+.2f}%, 胜率 {win(v)}%")
+
         for idx, label in ((2, "fwd1"), (3, "fwd3"), (4, "fwd5")):
             vals = [r[idx] for r in res]
             print(f"{label}: n={len(vals)} 均值 {statistics.mean(vals):+.2f}% "
@@ -143,7 +168,7 @@ def main() -> None:
         print(f"\n非财报期基准(60只全样本): fwd5 均值 {statistics.mean(base):+.2f}% 胜率 {win(base):.1f}%")
         lines.append(f"\n基准(非财报期): fwd5 均值 {statistics.mean(base):+.2f}%, 胜率 {win(base):.1f}%")
 
-    OUT.write_text("\n".join(lines))
+    OUT.write_text("\n".join(lines)) if res else print("(样本为空, 未覆盖报告文件)")
     print(f"\n报告: {OUT.name}")
 
 
