@@ -92,6 +92,8 @@ class AIInput:
     daily_regime: str = "flat"   # 日线 regime(代码级方向门控用)
     daily_adx: float = 0.0
     deep_dip: str = ""           # 深跌反转信号(深跌40%+且企稳)或 ""
+    rs20: float = 0.0            # 相对强度: 个股20日收益 - SPY20日收益(%)
+    pos20: float = 0.0           # 距20日最高(%)
     current_holding: str = ""    # 已持仓信息(加仓决策用)
     market_env: str = ""         # 大盘环境(SPY/QQQ, 只读参考)
     daily_levels: str = ""       # 日线关键位(20日高低/MA30, 结构止损参考)
@@ -206,6 +208,8 @@ class MarketData:
 
         # 日线关键位(结构止损参考): 20日高低 + MA30
         daily_levels = ""
+        rs20 = 0.0
+        pos20 = 0.0
         try:
             if len(df1d) >= 20:
                 dhi = float(df1d["high"].tail(20).max())
@@ -213,8 +217,24 @@ class MarketData:
                 ma30 = ind1d.ma30
                 last_px = float(quote.get("lastPr", 0) or 0)
                 dev = (last_px / ma30 - 1) * 100 if ma30 and last_px else 0.0
+                # 位置(距20日高) + 相对强度 vs SPY(2026-09 实证: RS<-10% fwd5胜率13.6%, 距高<-10% 胜率16%)
+                pos20 = (last_px / dhi - 1) * 100 if dhi and last_px else 0.0
+                try:
+                    spy_df = klines_to_df(self.klines("SPYUSDT", "1D", 50))
+                    if len(df1d) >= 21 and len(spy_df) >= 21:
+                        stk20 = (float(df1d["close"].iloc[-1]) / float(df1d["close"].iloc[-21]) - 1) * 100
+                        spy20 = (float(spy_df["close"].iloc[-1]) / float(spy_df["close"].iloc[-21]) - 1) * 100
+                        rs20 = stk20 - spy20
+                except Exception:
+                    rs20 = 0.0
+                tag = ""
+                if pos20 <= -10:
+                    tag = " ⚠️深跌中段(实证: 未企稳接刀 fwd5胜率仅16%)"
+                elif rs20 <= -10:
+                    tag = " ⚠️大幅跑输大盘(实证: fwd5胜率仅13.6%)"
                 daily_levels = (f"日线位(20日): 高{dhi:.2f} 低{dlo:.2f} "
-                                f"MA30 {ma30:.2f}(偏离{dev:+.1f}%) 跌破{min(dlo, ma30):.2f}=结构破坏")
+                                f"MA30 {ma30:.2f}(偏离{dev:+.1f}%) 跌破{min(dlo, ma30):.2f}=结构破坏 | "
+                                f"距20日高{pos20:+.1f}% | RS(vsSPY20日){rs20:+.1f}%{tag}")
         except Exception as e:
             log.debug("日线关键位计算失败: %s", str(e)[:60])
 
@@ -258,5 +278,7 @@ class MarketData:
             current_holding=current_holding,
             market_env=(market_env + (" | " + extra_env) if extra_env else market_env),
             daily_levels=daily_levels,
+            rs20=rs20,
+            pos20=pos20,
             weekly_line=weekly_line,
         )

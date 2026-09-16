@@ -43,3 +43,16 @@ def test_daily_regime_method_exists():
     """market.py 必须提供轻量日线 regime 方法(门控数据源)。"""
     from supermarket.market import MarketData
     assert hasattr(MarketData, "daily_regime")
+
+
+def test_mid_downtrend_gate_wiring():
+    """中段下跌禁区(实证: 距20日高≤-10%且日线非向上 → fwd5 胜率仅16%)。"""
+    src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "engine.py").read_text()
+    assert "中段下跌禁区" in src and "pos20" in src
+
+
+def test_aiinput_has_rs_and_pos_fields():
+    """AIInput 必须携带 RS/位置 两个实证因子(供 AI 与门控使用)。"""
+    from supermarket.market import AIInput
+    fields = AIInput.__dataclass_fields__
+    assert "rs20" in fields and "pos20" in fields

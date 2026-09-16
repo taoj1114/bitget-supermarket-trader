@@ -447,6 +447,11 @@ class SupermarketEngine:
                 elif side == "long" and getattr(self, "_market_down", False):
                     ok_dir, dir_reason = False, (f"大盘日线向下({self._market_note}), 禁开多仓"
                                                  f"(空单/深跌反转例外)")
+                elif (side == "long" and getattr(inp, "pos20", 0.0) <= -10
+                        and inp.daily_regime != "trend_up"):
+                    ok_dir, dir_reason = False, (
+                        f"中段下跌禁区(距20日高{inp.pos20:.1f}% 且日线{inp.daily_regime}, 非企稳深跌反转), "
+                        f"实证: 此类接刀 fwd5胜率仅16%")
                 else:
                     ok_dir, dir_reason = self.risk.validate_daily_direction(
                         inp.daily_regime, inp.daily_adx, side)
