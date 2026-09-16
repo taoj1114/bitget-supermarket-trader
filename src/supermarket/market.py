@@ -203,9 +203,12 @@ class MarketData:
             spyq = self.bg.quote("SPYUSDT")
             qqqq = self.bg.quote("QQQUSDT")
             chg = lambda q: float(q.get("changeUtc24h") or 0) * 100
-            spy1d = compute_indicators(klines_to_df(self.klines("SPYUSDT", "1D", 50)), primary=False)
+            # 直接调用门控同源方法(daily_regime), 保证 AI 看到的与程序门控完全一致
+            _mr = self.daily_regime("SPYUSDT")
+            _reg = _mr[0] if _mr else "flat"
+            _adx = _mr[1] if _mr else 0.0
             market_env = (f"[{time.strftime('%m-%d %H:%M')} UTC] 大盘: "
-                          f"SPY {chg(spyq):+.2f}% 24h(日线{spy1d.regime}) | "
+                          f"SPY {chg(spyq):+.2f}% 24h(已收日线{_reg} ADX{_adx:.0f}) | "
                           f"QQQ {chg(qqqq):+.2f}% 24h")
         except Exception as e:
             log.debug("大盘环境获取失败: %s", str(e)[:60])
@@ -224,7 +227,9 @@ class MarketData:
                 # 位置(距20日高) + 相对强度 vs SPY(2026-09 实证: RS<-10% fwd5胜率13.6%, 距高<-10% 胜率16%)
                 pos20 = (last_px / dhi - 1) * 100 if dhi and last_px else 0.0
                 try:
-                    spy_df = klines_to_df(self.klines("SPYUSDT", "1D", 50))
+                    spy_df = klines_to_df(self.klines("SPYUSDT", "1D", 60))
+                    if len(spy_df) > 30:
+                        spy_df = spy_df.iloc[:-1]   # 与门控一致: 只用已收盘日线
                     if len(df1d) >= 21 and len(spy_df) >= 21:
                         stk20 = (float(df1d["close"].iloc[-1]) / float(df1d["close"].iloc[-21]) - 1) * 100
                         spy20 = (float(spy_df["close"].iloc[-1]) / float(spy_df["close"].iloc[-21]) - 1) * 100

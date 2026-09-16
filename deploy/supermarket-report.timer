@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily supermarket report timer
+
+[Timer]
+# 系统时区=CST(北京): 09:00 触发(美股收盘后次日早晨)
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

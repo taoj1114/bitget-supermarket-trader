@@ -1,0 +1,9 @@
+[Unit]
+Description=Supermarket daily report (Telegram)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/workspace/bitget-supermarket-trader
+EnvironmentFile=/root/workspace/bitget-supermarket-trader/.env
+ExecStart=/root/workspace/bitget-supermarket-trader/.venv/bin/python scripts/daily_report.py
