@@ -141,7 +141,8 @@ class MarketData:
                     account: dict[str, Any], history: str = "",
                     lessons: list[str] | None = None,
                     manage: bool = False,
-                    current_holding: str = "") -> AIInput:
+                    current_holding: str = "",
+                    extra_env: str = "") -> AIInput:
         lessons = lessons or []
         lim = self.cfg.kline_limits
         df5 = klines_to_df(self.klines(symbol, "5m", lim.get("5m")))
@@ -255,7 +256,7 @@ class MarketData:
             daily_adx=ind1d.adx,
             deep_dip=deep_dip,
             current_holding=current_holding,
-            market_env=market_env,
+            market_env=(market_env + (" | " + extra_env) if extra_env else market_env),
             daily_levels=daily_levels,
             weekly_line=weekly_line,
         )

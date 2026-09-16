@@ -122,6 +122,9 @@ class TelegramCommander:
                  f"权益 <b>${float(acc.get('equity', 0)):.2f}</b> | 可用 ${float(acc.get('available', 0)):.2f}",
                  f"已用名义 ${float(acc.get('notional', 0)):.0f} (上限 ${float(acc.get('equity', 0)) * 6:.0f})",
                  f"持仓 {len(poses)} 个"]
+        s_line = getattr(self.engine, "_sentiment_line", "")
+        if s_line:
+            lines.append("📊 " + s_line)
         if (self.engine.state_dir / "pause.flag").exists():
             lines.append("⏸ <b>已暂停开新仓</b>")
         if not poses:

@@ -369,6 +369,28 @@ class SupermarketEngine:
         except Exception as e:
             log.debug("大盘趋势门控检测失败: %s", str(e)[:60])
 
+        # 市场情绪评分(用户提议 2026-09): 池内宽度 + VIX → 事实输入给 AI(不做程序决策)
+        self._sentiment = {}
+        self._sentiment_line = ""
+        try:
+            from supermarket.sentiment import compute_sentiment, fetch_vix, format_line
+            ts_map = {t["symbol"]: t for t in self.market.tickers()}
+            chgs = []
+            for s in self._contracts:
+                tk = ts_map.get(s)
+                if not tk:
+                    continue
+                try:
+                    chgs.append(float(tk.get("changeUtc24h") or 0) * 100)
+                except (TypeError, ValueError):
+                    pass
+            self._sentiment = compute_sentiment(chgs, fetch_vix())
+            self._sentiment_line = format_line(self._sentiment)
+            if self._sentiment_line:
+                log.info("情绪: %s", self._sentiment_line)
+        except Exception as e:
+            log.debug("情绪评分失败(不阻塞): %s", str(e)[:60])
+
         candidates = self._pick_candidates(account)
         lessons = self.memory.lessons
         session = __import__("supermarket.market", fromlist=["us_session"]).us_session()
@@ -382,7 +404,8 @@ class SupermarketEngine:
                 history = self.memory.get_symbol_history(sym)
                 inp = self.market.build_input(sym, quote, account,
                                               history=history, lessons=lessons,
-                                              current_holding=self._holding_line(sym))
+                                              current_holding=self._holding_line(sym),
+                                              extra_env=getattr(self, "_sentiment_line", ""))
                 decision = self.provider.decide_open(SYSTEM_OPEN, build_open_prompt(inp))
                 return (sym, quote, inp, decision)
             except Exception as e:
