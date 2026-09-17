@@ -406,6 +406,10 @@ class SupermarketEngine:
                                               history=history, lessons=lessons,
                                               current_holding=self._holding_line(sym),
                                               extra_env=getattr(self, "_sentiment_line", ""))
+                if not getattr(inp, "data_ok", True):
+                    self.memory.record_hold(sym, "REJECT: 日线数据不足(K线<35根), 无法决策", session)
+                    log.debug("跳过 %s: 日线数据不足", sym)
+                    return None
                 decision = self.provider.decide_open(SYSTEM_OPEN, build_open_prompt(inp))
                 return (sym, quote, inp, decision)
             except Exception as e:

@@ -329,12 +329,21 @@ class BitgetClient:
         return list((d.get("list") if isinstance(d, dict) else d) or [])
 
     def v3_strategy_orders(self, symbol: str | None = None) -> list[dict[str, Any]]:
-        """未触发策略单(= 交易所侧 TPSL)。字段: takeProfit/stopLoss/tpTriggerBy/slTriggerBy。"""
+        """未触发策略单(= 交易所侧 TPSL)。字段: takeProfit/stopLoss/tpTriggerBy/slTriggerBy。
+
+        注意: Bitget /api/v3/trade/unfilled-strategy-orders 实测忽略 symbol 参数,
+        始终返回账户下全部持仓的策略单。此处在客户端侧做二次过滤以防止跨标的误操作
+        (Bug 修复 2026-09-17: 平仓时误撤其他持仓 TPSL 导致裸仓)。
+        """
         path = f"/api/v3/trade/unfilled-strategy-orders?category={CATEGORY}"
         if symbol:
             path += f"&symbol={symbol}"
         d = self._request("GET", path)
-        return list((d.get("list") if isinstance(d, dict) else d) or [])
+        result = list((d.get("list") if isinstance(d, dict) else d) or [])
+        # 客户端侧按 symbol 过滤: 防止服务器不过滤时跨标的串单
+        if symbol:
+            result = [s for s in result if s.get("symbol") == symbol]
+        return result
 
     def v3_cancel_strategy(self, symbol: str, order_id: str) -> dict:
         return self._request("POST", "/api/v3/trade/cancel-strategy-order", {

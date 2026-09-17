@@ -93,6 +93,7 @@ class AIInput:
     daily_adx: float = 0.0
     deep_dip: str = ""           # 深跌反转信号(深跌40%+且企稳)或 ""
     rs20: float = 0.0            # 相对强度: 个股20日收益 - SPY20日收益(%)
+    data_ok: bool = True         # 日线数据是否足够(不足则跳过决策, 不浪费AI调用/防误判)
     pos20: float = 0.0           # 距20日最高(%)
     current_holding: str = ""    # 已持仓信息(加仓决策用)
     market_env: str = ""         # 大盘环境(SPY/QQQ, 只读参考)
@@ -133,7 +134,8 @@ class MarketData:
             df = klines_to_df(self.klines(symbol, "1D", 60))
             if df is None or len(df) < 30:
                 return None
-            df = df.iloc[:-1]  # 只用已收盘日线(方向判断避免盘中抖动)
+            if len(df) > 40:
+                df = df.iloc[:-1]  # 只用已收盘日线(防盘中抖动); 数据不足则沿用防跌破最小长度
             ind = compute_indicators(df, primary=False)
             return ind.regime, float(ind.adx)
         except Exception as e:
@@ -154,7 +156,8 @@ class MarketData:
         df1d = klines_to_df(self.klines(symbol, "1D", lim.get("1D")))
         # 日线方向权威必须基于"已收盘日线": 进行中的最后一根会让 regime/ADX 盘中抖动
         # (2026-09 实证: SPCX 盘中显示 trend_down → AI 平仓亏$0.33, 当日收盘实为 trend_up ADX27.4)
-        df1d_done = df1d.iloc[:-1] if len(df1d) > 30 else df1d
+        # 仅在有足够余量时剔除(指标计算最小长度 35 根; 日线不足的标的直接沿用, 防全0)
+        df1d_done = df1d.iloc[:-1] if len(df1d) > 40 else df1d
         # 1W 周线=季节增强, 失败降级为空(不阻塞扫描)
         df1w = pd.DataFrame()
         try:
@@ -289,5 +292,6 @@ class MarketData:
             daily_levels=daily_levels,
             rs20=rs20,
             pos20=pos20,
+            data_ok=(len(df1d_done) >= 35 and len(df4h) >= 20),
             weekly_line=weekly_line,
         )
