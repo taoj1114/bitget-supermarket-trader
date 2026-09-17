@@ -27,7 +27,7 @@ def make_engine(equity=30.0, notional=0.0, longs=0, shorts=0):
 CONTRACT = {"maxLever": 20, "sizeMultiplier": 0.01, "minTradeUSDT": 5, "volumePlace": 4}
 
 
-def V(symbol="NVDAUSDT", price=220.0, side="long", sl=214.0, tp=231.0,
+def V(symbol="NVDAUSDT", price=220.0, side="long", sl=213.0, tp=235.0,
        contract=CONTRACT, acc=None, longs=0, shorts=0):
     """便捷调用: 返回 (ok, reason, params)。"""
     eng, a = make_engine()
@@ -37,13 +37,13 @@ def V(symbol="NVDAUSDT", price=220.0, side="long", sl=214.0, tp=231.0,
 
 # ---------- 多头 ----------
 def test_basic_ok():
-    ok, reason, params = V(sl=214.0, tp=231.0, longs=0)
+    ok, reason, params = V(sl=213.0, tp=235.0, longs=0)
     assert ok, reason
     assert params["leverage"] == 20
     assert params["direction"] == "long"
     # $2 保证金 × 20x = $40 名义 / 220 ≈ 0.1818 → 步长0.01 → 0.18
     assert abs(params["notional"] - 39.6) < 1.0
-    assert params["sl_dist_pct"] > 2.5 and params["rr"] >= 1.5
+    assert params["sl_dist_pct"] > 3.0 and params["rr"] >= 2.0
 
 
 def test_sl_missing():
@@ -72,23 +72,21 @@ def test_sl_too_far():
 
 
 def test_rr_too_low():
-    # SL 2.7%, TP 1.4% → RR 0.52 → 拒绝
-    ok, reason, _ = V(sl=214.0, tp=223.0)
+    # SL 3.18%, TP 2.27% → RR 0.71 → 拒绝
+    ok, reason, _ = V(sl=213.0, tp=225.0)
     assert not ok and "盈亏比" in reason
 
 
 def test_rr_marginally_low_auto_fix():
-    """RR 1.3~1.5 临界: 自动修正 TP 至 1.5(保留 AI 意图), 而非拒单。"""
-    ok, reason, params = V(sl=214.0, tp=229.5)  # SL 2.7% / TP 4.3% = RR 1.58? 需要构造 1.3
-    # 用精确构造: sl=214 (2.727%), tp=224 (1.818%) → RR 0.667 < 1.0 → 拒
-    ok2, reason2, _ = V(sl=214.0, tp=224.0)
+    """RR 1.0~2.0 临界: 自动修正 TP 至 2.0(保留 AI 意图), 而非拒单; RR<1.0 直接拒。"""
+    # RR 0.71 (SL 3.18%, TP 2.27%) → 直接拒
+    ok2, reason2, _ = V(sl=213.0, tp=225.0)
     assert not ok2 and "盈亏比" in reason2
-    # RR 1.33 (SL 3%, TP 4%): sl=213.4 (3.0%), tp=228.8 (4.0%) → RR 1.33 → 自动修正
-    ok3, reason3, params3 = V(sl=213.4, tp=228.8)
+    # RR 1.5 (SL 3.18%, TP 4.77%): sl=213.0, tp=230.5 → 自动修正到 RR=2.0
+    ok3, reason3, params3 = V(sl=213.0, tp=230.5)
     assert ok3, reason3
-    # 修正后 TP 提升至 RR=1.5: SL 3.0% → TP 距离 4.5%
-    assert params3["rr"] == 1.5
-    assert abs(params3["tp_dist_pct"] - 4.5) < 0.2
+    assert params3["rr"] == 2.0
+    assert abs(params3["tp_dist_pct"] - 6.36) < 0.25
 
 
 def test_notional_cap_ok():
@@ -143,11 +141,11 @@ def test_leverage_capped_by_contract():
 
 # ---------- 空头(镜像) ----------
 def test_short_basic_ok():
-    ok, reason, params = V(side="short", sl=226.0, tp=205.0)  # SL 2.7% / TP 6.8% → RR 2.5
+    ok, reason, params = V(side="short", sl=228.0, tp=203.0)  # SL 3.6% / TP 7.7% → RR 2.1
     assert ok, reason
     assert params["direction"] == "short"
-    assert params["sl_dist_pct"] > 2.5
-    assert params["rr"] >= 1.5
+    assert params["sl_dist_pct"] > 3.0
+    assert params["rr"] >= 2.0
 
 
 def test_short_sl_below_price():
@@ -158,12 +156,12 @@ def test_short_sl_below_price():
 
 def test_short_tp_above_price():
     # 空头止盈必须在价格下方
-    ok, reason, _ = V(side="short", sl=226.0, tp=240.0)
+    ok, reason, _ = V(side="short", sl=228.0, tp=240.0)
     assert not ok and "止盈" in reason
 
 
 def test_short_position_cap():
-    ok, reason, _ = V(side="short", sl=226.0, tp=214.0, shorts=2)  # 上限2
+    ok, reason, _ = V(side="short", sl=228.0, tp=214.0, shorts=2)  # 上限2
     assert not ok and "空头仓数" in reason
 
 
@@ -186,7 +184,7 @@ def test_wide_sl_allowed():
                                            CONTRACT, acc, 0, 0)
     assert ok, reason
     assert params["sl_dist_pct"] == 15.0
-    assert params["rr"] >= 1.5
+    assert params["rr"] >= 2.0
 
 
 # ---------- 日线方向门控(镜像) ----------
@@ -197,7 +195,7 @@ def test_batch_limits():
     ok, reason, params = eng.validate_open("NVDAUSDT", 100.0, "long", 95.0, 110.0, CONTRACT, acc, 5, 0)
     assert ok, reason
     # 第2/3批(加仓): 需现有浮盈≥0.5% + 新止损≥原均价+0.25% + SL≥2%距离, 通过
-    ok, reason, _ = eng.validate_open("NVDAUSDT", 104.0, "long", 101.9, 110.0, CONTRACT, acc, 5, 0,
+    ok, reason, _ = eng.validate_open("NVDAUSDT", 104.0, "long", 100.8, 110.5, CONTRACT, acc, 5, 0,
                                       batches_used=2, existing_pnl_pct=4.0, existing_entry=100.0)
     assert ok, reason
     # 第4批 → 拒(批次上限)
