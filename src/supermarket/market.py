@@ -94,6 +94,8 @@ class AIInput:
     deep_dip: str = ""           # 深跌反转信号(深跌40%+且企稳)或 ""
     rs20: float = 0.0            # 相对强度: 个股20日收益 - SPY20日收益(%)
     data_ok: bool = True         # 日线数据是否足够(不足则跳过决策, 不浪费AI调用/防误判)
+    new_high_5d: bool = False    # 近5日是否创过新高(趋势是否仍在推进; 实证关键区分)
+    days_since_high: int = 0     # 距上次创(20日)新高的天数
     pos20: float = 0.0           # 距20日最高(%)
     current_holding: str = ""    # 已持仓信息(加仓决策用)
     market_env: str = ""         # 大盘环境(SPY/QQQ, 只读参考)
@@ -220,6 +222,8 @@ class MarketData:
         daily_levels = ""
         rs20 = 0.0
         pos20 = 0.0
+        new_high_5d = False
+        days_since_high = 0
         try:
             if len(df1d_done) >= 20:
                 dhi = float(df1d_done["high"].tail(20).max())
@@ -239,14 +243,28 @@ class MarketData:
                         rs20 = stk20 - spy20
                 except Exception:
                     rs20 = 0.0
+                # 趋势是否仍在推进(2026-09 实证 53722 样本: 近5日有新高→超额+0.45%; 无新高→仅+0.10%)
+                hi_list = [float(x) for x in df1d_done["high"].tolist()]
+                if len(hi_list) >= 11:
+                    new_high_5d = max(hi_list[-5:]) >= max(hi_list[-10:-5])
+                    for k in range(len(hi_list) - 1, max(len(hi_list) - 21, 0), -1):
+                        if hi_list[k] >= max(hi_list[max(0, k - 20):k + 1]):
+                            days_since_high = len(hi_list) - 1 - k
+                            break
+                    else:
+                        days_since_high = 20
                 tag = ""
                 if pos20 <= -10:
                     tag = " ⚠️深跌中段(实证: 未企稳接刀 fwd5胜率仅16%)"
                 elif rs20 <= -10:
                     tag = " ⚠️大幅跑输大盘(实证: fwd5胜率仅13.6%)"
+                elif not new_high_5d:
+                    tag = (" ⚠️近5日无新高=趋势未推进(实证: 此类回调超额收益仅+0.1% vs "
+                           "创新高者+0.45%; 除非有放量确认, 否则等创新高再进货)")
                 daily_levels = (f"日线位(20日): 高{dhi:.2f} 低{dlo:.2f} "
                                 f"MA30 {ma30:.2f}(偏离{dev:+.1f}%) 跌破{min(dlo, ma30):.2f}=结构破坏 | "
-                                f"距20日高{pos20:+.1f}% | RS(vsSPY20日){rs20:+.1f}%{tag}")
+                                f"距20日高{pos20:+.1f}% | RS(vsSPY20日){rs20:+.1f}% | "
+                                f"近5日新高:{'是' if new_high_5d else f'否(距上次新高{days_since_high}天)'}{tag}")
         except Exception as e:
             log.debug("日线关键位计算失败: %s", str(e)[:60])
 
@@ -292,6 +310,8 @@ class MarketData:
             daily_levels=daily_levels,
             rs20=rs20,
             pos20=pos20,
+            new_high_5d=new_high_5d,
+            days_since_high=days_since_high,
             data_ok=(len(df1d_done) >= 35 and len(df4h) >= 20),
             weekly_line=weekly_line,
         )

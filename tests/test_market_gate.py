@@ -64,3 +64,14 @@ def test_daily_direction_uses_closed_candles():
     assert "df1d_done" in src, "build_input 应剔除进行中的日线"
     assert "df.iloc[:-1]" in src, "daily_regime 应剔除进行中的日线"
     assert "日线(已收, 定方向!)" in src, "渲染标签应标明已收盘"
+
+
+def test_trend_progress_fields():
+    """趋势推进度字段(AI 与门控使用; 实证: 近5日新高 是回调质量的分水岭)。"""
+    from supermarket.market import AIInput
+    f = AIInput.__dataclass_fields__
+    assert "new_high_5d" in f and "days_since_high" in f
+    src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "market.py").read_text()
+    assert "近5日新高" in src
+    p = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "prompts.py").read_text()
+    assert "趋势仍在推进" in p
