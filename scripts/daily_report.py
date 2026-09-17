@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import statistics
 import sys
 import time
 from datetime import datetime, timezone, timedelta
@@ -69,11 +70,13 @@ def main() -> None:
     except Exception as e:
         lines.append(f"⚠️ 账户查询失败: {str(e)[:50]}")
 
-    # 2) 当日成交与盈亏
-    orders = load(LIVE / "real.json", {}).get("orders") or []
-    opens = [o for o in orders if o.get("ts", 0) >= today_start and o.get("action") == "open"]
-    closes = [o for o in orders if o.get("ts", 0) >= today_start and o.get("action") == "close"]
-    day_pnl = sum(float(o.get("pnl", 0) or 0) for o in closes)
+    # 2) 当日成交与盈亏(以 ai_memory 逐笔记录为权威; orders 仅作辅助)
+    mem0 = load(LIVE / "ai_memory.json", {})
+    decs0 = mem0.get("decisions") or []
+    opens = [d for d in decs0 if float(d.get("ts", 0) or 0) >= today_start]
+    closes = [d for d in decs0 if d.get("outcome") == "closed"
+              and float(d.get("close_ts", 0) or 0) >= today_start]
+    day_pnl = sum(float(d.get("pnl", 0) or 0) for d in closes)
     lines.append(f"今日: 开仓 {len(opens)} | 平仓 {len(closes)} | 净盈亏 <b>${day_pnl:+.4f}</b>")
 
     # 3) 风控拦截统计(观察门控是否过严)
@@ -99,6 +102,23 @@ def main() -> None:
             kinds["其他拒绝"] += 1
     active = " | ".join(f"{k} {v}" for k, v in kinds.items() if v)
     lines.append(f"风控: {active or '无记录'}")
+
+    # 3.5) 策略业绩(逐笔交易记录累加, **不受外部注资影响**) + 注资核对
+    closed = [d for d in (mem.get("decisions") or []) if d.get("outcome") == "closed"]
+    realized = sum(float(d.get("pnl", 0) or 0) for d in closed)
+    wins = len([d for d in closed if float(d.get("pnl", 0) or 0) > 0])
+    holds_h = []
+    for d in closed:
+        o, c2 = float(d.get("ts", 0) or 0), float(d.get("close_ts", 0) or 0)
+        if o and c2:
+            holds_h.append((c2 - o) / 3600)
+    cap = load(LIVE / "capital.json", {})
+    dep = sum(float(d.get("amount") or 0) for d in (cap.get("deposits") or []))
+    avg_hold = f"{statistics.median(holds_h)*60:.0f}分" if holds_h and statistics.median(holds_h) < 1 else (f"{statistics.median(holds_h):.1f}时" if holds_h else "—")
+    lines.append(f"📈 策略业绩(累计, 不含注资): 已实现 <b>${realized:+.4f}</b> | "
+                 f"{len(closed)}笔 {wins}胜{len(closed)-wins}负 | 持有中位 {avg_hold}")
+    if dep:
+        lines.append(f"💰 外部注资合计 ${dep:.2f} → 账户权益 = 注资 + 基线 + 策略业绩")
 
     # 4) 熔断状态 + 告警
     br = load(LIVE / "breakers.json", {})
