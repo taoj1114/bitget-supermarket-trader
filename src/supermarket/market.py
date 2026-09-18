@@ -59,8 +59,9 @@ def orderbook_pressure(book: dict[str, Any]) -> str:
         ratio = bid_vol / ask_vol if ask_vol else 0
         spread = (asks[0][0] - bids[0][0]) / bids[0][0] * 100 if bids[0][0] else 0
         big = max(bids[0][1], asks[0][1]) if (bids and asks) else 0
-        side = "买压" if ratio > 1.1 else ("卖压" if ratio < 0.9 else "均衡")
-        return f"{side} 买{bid_vol:.0f}/卖{ask_vol:.0f} ({ratio:.2f}) 价差{spread:.3f}% 首档大单{big:.0f}"
+        # 2026-09-19: 同样去价值判断 — 只给买卖量比数值, 由 AI 自行解读
+        return (f"盘口买卖量比{ratio:.2f}(买{bid_vol:.0f}/卖{ask_vol:.0f}) "
+                f"价差{spread:.3f}% 首档大单{big:.0f}")
     except Exception:
         return ""
 

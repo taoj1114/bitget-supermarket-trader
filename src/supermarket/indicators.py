@@ -81,14 +81,16 @@ def _volume_status(df: pd.DataFrame) -> str:
     close = df["close"].iloc[-1]
     prev = df["close"].iloc[-2]
     up = close > prev
+    # 2026-09-19: 清洗价值判断标签(外部评审指出: 输入端的"洗盘/乏力/风险"标签
+    # 与提示词"禁止用这些词当理由"自相矛盾, 且会带偏注意力) → 只保留中性量价事实
     if up and ratio >= 1.3:
-        return "放量上涨(强势)"
+        return "放量上涨"
     if up and ratio < 0.8:
-        return "缩量上涨(乏力)"
+        return "缩量上涨"
     if not up and ratio >= 1.3:
-        return "放量下跌(风险)"
+        return "放量下跌"
     if not up and ratio < 0.8:
-        return "缩量回调(洗盘)"
+        return "缩量回调"
     return "量平"
 
 

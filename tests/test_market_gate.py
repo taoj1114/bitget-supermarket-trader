@@ -111,3 +111,22 @@ def test_optimizations_v2():
     assert "s not in _bad" in eng, "候选应过滤数据不足标的"
     ex = (root / "execution.py").read_text()
     assert "orders[-200:]" in ex, "订单流水应裁剪"
+
+
+def test_no_judgmental_labels_in_input():
+    """外部评审采纳(2026-09-19): 输入端不得对量价/盘口打价值判断标签
+    (否则与提示词"禁止用洗盘/买压强当理由"自相矛盾, 且带偏注意力)。"""
+    root = Path(__file__).resolve().parent.parent / "src" / "supermarket"
+    ind = (root / "indicators.py").read_text()
+    for bad in ("洗盘", "乏力)", "(风险)", "(强势)"):
+        assert bad not in ind, f"指标标签仍含价值判断: {bad}"
+    mk = (root / "market.py").read_text()
+    assert '"买压"' not in mk and '"卖压"' not in mk, "盘口仍含买卖压标签"
+
+
+def test_review_adopted_prompt_fixes():
+    """采纳的三项提示词改进: 门控短路优先级 / 做空四段式 / 深跌企稳量化门槛。"""
+    from supermarket.prompts import SYSTEM_OPEN
+    assert "执行优先级" in SYSTEM_OPEN and "直接输出 HOLD" in SYSTEM_OPEN
+    assert "距20日低+x%" in SYSTEM_OPEN, "缺做空四段式模板"
+    assert "近 3 日未创新低" in SYSTEM_OPEN, "深跌反转缺量化企稳门槛"
