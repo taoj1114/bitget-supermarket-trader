@@ -72,7 +72,7 @@ def test_trend_progress_fields():
     f = AIInput.__dataclass_fields__
     assert "new_high_5d" in f and "days_since_high" in f
     src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "market.py").read_text()
-    assert "近5日新高" in src
+    assert "近5日创新高" in src
     p = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "prompts.py").read_text()
     assert "趋势仍在推进" in p
 

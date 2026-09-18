@@ -281,8 +281,8 @@ class MarketData:
                 daily_levels = (f"日线位(20日): 高{dhi:.2f} 低{dlo:.2f} "
                                 f"MA30 {ma30:.2f}(偏离{dev:+.1f}%) 跌破{min(dlo, ma30):.2f}=结构破坏 | "
                                 f"距20日高{pos20:+.1f}% | RS(vsSPY20日){rs20:+.1f}% | "
-                                f"近5日新高:{'是' if new_high_5d else f'否(距上次新高{days_since_high}天)'} | "
-                                f"动量:{momentum_state}{tag}")
+                                f"近5日创新高:{'是' if new_high_5d else f'否(距上次新高{days_since_high}天)'} | "
+                                f"动量(近3日口径):{momentum_state}{tag}")
         except Exception as e:
             log.debug("日线关键位计算失败: %s", str(e)[:60])
 
