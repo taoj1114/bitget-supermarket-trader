@@ -110,7 +110,7 @@ class AIMemory:
         for h in rows:
             lines.append(
                 f"  {time.strftime('%m-%d %H:%M', time.localtime(h['ts']))} "
-                f"{h['action']} → {h['close_reason']} pnl=${h.get('pnl', 0):+.3f} "
+                f"{h.get('action', '?')} → {h.get('close_reason') or '-'} pnl=${h.get('pnl', 0):+.3f} "
                 f"| {h['reason'][:40]}"
             )
         return "\n".join(lines)

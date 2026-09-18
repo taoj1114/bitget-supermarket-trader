@@ -121,6 +121,19 @@ class SupermarketEngine:
                 log.warning("对账跳过: 交易所持仓查询失败(%s)", str(e)[:80])
                 return
             held = {r.get("symbol") for r in (raw_pos or [])}
+            # holdings 自愈(2026-09-18): 清理不在交易所的陈旧记录。
+            # 背景: 手工编辑 state 文件会被运行中的引擎内存状态覆盖 → 放在对账里自动做。
+            try:
+                st = getattr(self.executor, "_state", None)
+                if isinstance(st, dict) and isinstance(st.get("holdings"), dict):
+                    stale = [k for k in list(st["holdings"]) if k not in held]
+                    if stale:
+                        for k in stale:
+                            st["holdings"].pop(k, None)
+                        self.executor._save()
+                        log.info("holdings 自愈: 清理陈旧记录 %s", stale)
+            except Exception as e:
+                log.debug("holdings 自愈失败: %s", str(e)[:60])
             # 安全网: 本地有开仓记录却查到空持仓 → 极可能查询异常, 二次确认后再决定
             if not held and self.memory.open_decisions():
                 time.sleep(1.0)

@@ -20,6 +20,9 @@ import httpx
 
 log = logging.getLogger(__name__)
 
+NET_RETRY = 3          # 网络错误重试次数
+NET_RETRY_BACKOFF = 1.0  # 退避基数(秒)
+
 PRODUCT_TYPE = "USDT-FUTURES"
 CATEGORY = "USDT-FUTURES"   # v3(统一账户)中同义字段名
 MARGIN_COIN = "USDT"
@@ -58,17 +61,29 @@ class BitgetClient:
         }
 
     def _request(self, method: str, path: str, body: dict | None = None) -> Any:
+        """带网络重试(2026-09: 实测 DNS/连接抖动 24h 内 14 次导致持仓/账户查询失败)。"""
         body_str = json.dumps(body) if body is not None else ""
         headers = self._headers(method, path, body_str) if self.api_key else {}
-        try:
-            resp = self._client.request(method, self.base_url + path,
-                                        content=body_str.encode() if body is not None else None,
-                                        headers=headers)
-            data = resp.json()
-        except httpx.HTTPStatusError as e:
-            raise BitgetError(str(e.response.status_code), e.response.text[:200], path)
-        except Exception as e:  # 网络错误
-            raise BitgetError("NET", str(e), path)
+        data = None
+        last_err: Exception | None = None
+        for attempt in range(NET_RETRY):
+            try:
+                resp = self._client.request(method, self.base_url + path,
+                                            content=body_str.encode() if body is not None else None,
+                                            headers=headers)
+                data = resp.json()
+                break
+            except httpx.HTTPStatusError as e:
+                # HTTP 状态错误(4xx/5xx) → 业务错误, 不重试
+                raise BitgetError(str(e.response.status_code), e.response.text[:200], path)
+            except Exception as e:  # 网络层错误(DNS/连接/超时) → 退避重试
+                last_err = e
+                if attempt < NET_RETRY - 1:
+                    time.sleep(NET_RETRY_BACKOFF * (attempt + 1))
+                    continue
+                raise BitgetError("NET", str(e), path)
+        if data is None:
+            raise BitgetError("NET", str(last_err or "unknown"), path)
         if data.get("code") not in ("00000", 0):
             raise BitgetError(str(data.get("code")), str(data.get("msg", "")), path)
         return data.get("data")

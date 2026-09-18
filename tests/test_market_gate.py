@@ -90,3 +90,14 @@ def test_no_v2_pending_plans():
     bc = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "bitget_client.py").read_text()
     assert "orders-plan-pending" not in bc
     assert "def v3_strategy_orders" in bc
+
+
+def test_resilience_fixes():
+    """健壮性修复(2026-09-18 体检): 网络重试 + holdings 自愈 + 盈亏比残留修正。"""
+    root = Path(__file__).resolve().parent.parent / "src" / "supermarket"
+    bc = (root / "bitget_client.py").read_text()
+    assert "NET_RETRY" in bc and "NET_RETRY_BACKOFF" in bc, "网络错误应重试"
+    eng = (root / "engine.py").read_text()
+    assert "holdings 自愈" in eng, "应自动清理陈旧 holdings"
+    pr = (root / "prompts.py").read_text()
+    assert "盈亏比≥1.5" not in pr, "旧盈亏比残留应清除"
