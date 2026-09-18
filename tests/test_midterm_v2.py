@@ -28,7 +28,8 @@ def test_scalp_rules_removed_from_prompts():
     assert "乏力" in SYSTEM_MANAGE and "66" in SYSTEM_MANAGE
     # 买入侧不再宣称薄利快周转
     assert "薄利快周转" not in SYSTEM_OPEN
-    assert "4%~8%" in SYSTEM_OPEN
+    # 2026-09-18 实证: 止盈改为极端保护位(固定TP截断趋势利润, 均值差近5倍)
+    assert "10%~15%" in SYSTEM_OPEN and "极端保护" in SYSTEM_OPEN
 
 
 def test_hold_period_stated_as_days():
