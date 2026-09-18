@@ -116,10 +116,13 @@ def test_optimizations_v2():
 def test_no_judgmental_labels_in_input():
     """外部评审采纳(2026-09-19): 输入端不得对量价/盘口打价值判断标签
     (否则与提示词"禁止用洗盘/买压强当理由"自相矛盾, 且带偏注意力)。"""
+    import re
     root = Path(__file__).resolve().parent.parent / "src" / "supermarket"
     ind = (root / "indicators.py").read_text()
-    for bad in ("洗盘", "乏力)", "(风险)", "(强势)"):
-        assert bad not in ind, f"指标标签仍含价值判断: {bad}"
+    # 只检查函数返回的字符串字面量(修复说明的注释不算)
+    for lit in re.findall(r'return "([^"]*)"', ind):
+        for bad in ("洗盘", "乏力", "风险", "强势"):
+            assert bad not in lit, f"量价标签仍含价值判断: {lit}"
     mk = (root / "market.py").read_text()
     assert '"买压"' not in mk and '"卖压"' not in mk, "盘口仍含买卖压标签"
 
