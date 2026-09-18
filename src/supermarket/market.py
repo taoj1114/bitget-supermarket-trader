@@ -96,6 +96,7 @@ class AIInput:
     data_ok: bool = True         # 日线数据是否足够(不足则跳过决策, 不浪费AI调用/防误判)
     new_high_5d: bool = False    # 近5日是否创过新高(趋势是否仍在推进; 实证关键区分)
     days_since_high: int = 0     # 距上次创(20日)新高的天数
+    momentum_state: str = ""     # 动量状态: 推进中/滞涨/乏力(浮盈持仓的卖出信号, 实证核心)
     pos20: float = 0.0           # 距20日最高(%)
     current_holding: str = ""    # 已持仓信息(加仓决策用)
     market_env: str = ""         # 大盘环境(SPY/QQQ, 只读参考)
@@ -224,6 +225,7 @@ class MarketData:
         pos20 = 0.0
         new_high_5d = False
         days_since_high = 0
+        momentum_state = ""
         try:
             if len(df1d_done) >= 20:
                 dhi = float(df1d_done["high"].tail(20).max())
@@ -253,6 +255,21 @@ class MarketData:
                             break
                     else:
                         days_since_high = 20
+                # 动量状态(2026-09 实证 481475 样本): 乏力 → 浮盈回吐概率 66% vs 推进中 40%
+                hs = [float(x) for x in df1d_done["high"].tolist()]
+                cs2 = [float(x) for x in df1d_done["close"].tolist()]
+                if len(cs2) >= 6:
+                    hi3, hi6 = max(hs[-3:]), max(hs[-6:-3])
+                    ma5d = sum(cs2[-5:]) / 5
+                    red2 = cs2[-1] < cs2[-2] and cs2[-2] < cs2[-3]
+                    if hi3 >= hi6 and cs2[-1] > ma5d and not red2:
+                        momentum_state = "推进中"
+                    elif hi3 < hi6 and cs2[-1] <= ma5d:
+                        momentum_state = "乏力"
+                    elif hi3 < hi6:
+                        momentum_state = "滞涨"
+                    else:
+                        momentum_state = "混合"
                 tag = ""
                 if pos20 <= -10:
                     tag = " ⚠️深跌中段(实证: 未企稳接刀 fwd5胜率仅16%)"
@@ -264,7 +281,8 @@ class MarketData:
                 daily_levels = (f"日线位(20日): 高{dhi:.2f} 低{dlo:.2f} "
                                 f"MA30 {ma30:.2f}(偏离{dev:+.1f}%) 跌破{min(dlo, ma30):.2f}=结构破坏 | "
                                 f"距20日高{pos20:+.1f}% | RS(vsSPY20日){rs20:+.1f}% | "
-                                f"近5日新高:{'是' if new_high_5d else f'否(距上次新高{days_since_high}天)'}{tag}")
+                                f"近5日新高:{'是' if new_high_5d else f'否(距上次新高{days_since_high}天)'} | "
+                                f"动量:{momentum_state}{tag}")
         except Exception as e:
             log.debug("日线关键位计算失败: %s", str(e)[:60])
 
@@ -312,6 +330,7 @@ class MarketData:
             pos20=pos20,
             new_high_5d=new_high_5d,
             days_since_high=days_since_high,
+            momentum_state=momentum_state,
             data_ok=(len(df1d_done) >= 35 and len(df4h) >= 20),
             weekly_line=weekly_line,
         )

@@ -23,8 +23,9 @@ def test_scalp_rules_removed_from_prompts():
     # 允许历史说明引用(已废止), 但禁止作为规则出现
     assert "浮盈≥0.5%(覆盖往返手续费" not in SYSTEM_MANAGE
     assert "即可兑现(CLOSE)落袋为安" not in SYSTEM_MANAGE
-    assert "已废止" in SYSTEM_MANAGE
-    assert "中期持有原则" in SYSTEM_MANAGE
+    # 2026-09: 卖出现为"动量驱动"(推进/滞涨/乏力), 不再是固定浮盈百分比
+    assert "动量驱动" in SYSTEM_MANAGE
+    assert "乏力" in SYSTEM_MANAGE and "66" in SYSTEM_MANAGE
     # 买入侧不再宣称薄利快周转
     assert "薄利快周转" not in SYSTEM_OPEN
     assert "4%~8%" in SYSTEM_OPEN
