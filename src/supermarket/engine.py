@@ -177,6 +177,36 @@ class SupermarketEngine:
             except Exception:
                 pass
 
+    def _refresh_market_state(self) -> None:
+        """大盘状态(管仓防守 + 开仓门控共用)。
+
+        2026-09: SPY 已收日线 trend_down(ADX≥25) → 开仓禁多 + 持仓端收紧
+        (与大盘反向的持仓: 浮盈及时兑现、浮亏破结构即认错 —— 开仓与持仓对称)。
+        """
+        self._market_down = False
+        self._market_note = ""
+        try:
+            mr = self.market.daily_regime("SPYUSDT")
+            if mr:
+                reg, madx = mr
+                self._market_note = f"SPY日线{reg}(ADX{madx:.0f})"
+                if reg == "trend_down" and madx >= self.cfg.market_down_adx:
+                    self._market_down = True
+                    log.warning("大盘趋势门控: %s → 禁开多仓 + 持仓端收紧(空单/深跌反转例外)",
+                                self._market_note)
+                    if not getattr(self, "_market_down_notified", False):
+                        self._market_down_notified = True
+                        try:
+                            from supermarket import notify
+                            notify.risk_event(f"大盘趋势门控: {self._market_note} → 禁开多仓, "
+                                              f"且多单应更积极兑现/认错")
+                        except Exception:
+                            pass
+                else:
+                    self._market_down_notified = False
+        except Exception as e:
+            log.debug("大盘状态检测失败: %s", str(e)[:60])
+
     def _ensure_protection(self) -> None:
         """保护自愈(实盘安全网): 裸仓补挂 TPSL + 策略单量不匹配时重挂覆盖全仓。
 
@@ -239,6 +269,8 @@ class SupermarketEngine:
                         "unrealized_pnl_pct": pnl_pct, "direction": pos.direction,
                         "hold_days": round((time.time() - pos.opened_ts) / 86400, 1),
                         "batches": getattr(pos, "batches", 1),
+                        "market_down": getattr(self, "_market_down", False),
+                        "market_note": getattr(self, "_market_note", ""),
                     }))
                 return (pos, quote, decision)
             except Exception as e:
@@ -369,31 +401,6 @@ class SupermarketEngine:
                 return
         except Exception:
             pass  # 拿不到 SPY 不阻塞(如网络抖动)
-        # 大盘趋势门控(硬约束, 2026-09 用户实证): SPY 日线明确向下 → 禁开多仓
-        # 理由: 天气门只挡单日暴跌, 挡不住"阴跌"里反复抄反弹→认错小亏的累积(实测两笔 -$0.79)
-        self._market_down = False
-        self._market_note = ""
-        try:
-            mr = self.market.daily_regime("SPYUSDT")
-            if mr:
-                reg, madx = mr
-                self._market_note = f"SPY日线{reg}(ADX{madx:.0f})"
-                if reg == "trend_down" and madx >= self.cfg.market_down_adx:
-                    self._market_down = True
-                    log.warning("大盘趋势门控: %s → 禁开多仓(空单/深跌反转例外)", self._market_note)
-                    if not getattr(self, "_market_down_notified", False):
-                        self._market_down_notified = True
-                        try:
-                            from supermarket import notify
-                            notify.risk_event(f"大盘趋势门控: {self._market_note} → 禁开多仓"
-                                              f"(空单/深跌反转例外仍允许)")
-                        except Exception:
-                            pass
-                else:
-                    self._market_down_notified = False
-        except Exception as e:
-            log.debug("大盘趋势门控检测失败: %s", str(e)[:60])
-
         # 市场情绪评分(用户提议 2026-09): 池内宽度 + VIX → 事实输入给 AI(不做程序决策)
         self._sentiment = {}
         self._sentiment_line = ""
@@ -545,6 +552,7 @@ class SupermarketEngine:
         # tick 平掉的仓立即补录(不拖到下一轮): 防 crash 丢失 + 复盘即时
         self._reconcile()
         self._ensure_protection()
+        self._refresh_market_state()   # 大盘状态先行(管仓与开仓共用)
         self._manage_positions(account)
         if do_scan:
             self._scan(account)
