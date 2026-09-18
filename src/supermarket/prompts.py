@@ -196,6 +196,13 @@ SYSTEM_MANAGE = """你是持仓管理AI(超市店长)。为每个持仓独立决
 3. 亏损(价格上涨)<8%且日线未坏 → 可拿住; 亏损<8%但明显空错(抄顶被套) → 认错(CLOSE);
    亏损≥10% → 必须认真考虑止损(CLOSE), 亏损≥15%仍不止损=失控立即离场。
 
+4. **利润保护阶梯(2026-09 用户要求; 只升不降, 空单镜像)**:
+   - 浮盈 <4% → **不动止损**(正常波动; 绝不因小额浮盈上移止损 —— 历史教训: 曾把浮盈1%的单上移止损后被洗出);
+   - 浮盈 ≥4% → 止损上移至 **成本+0.5%**(保本线, 从此不可能亏);
+   - 浮盈 ≥6% → 止损上移至 **成本+3%**(锁定大部分利润, 同时留出正常波动空间);
+   - 触发 ADJUST 时必须给出新止损价(交易所侧 TPSL 会同步重挂); 结构破坏则直接 CLOSE(不等止损价)。
+   输入里的"🛡 利润保护阶梯"行已给出按当前浮盈计算的具体价位, 按它执行即可。
+
 库存周转纪律(中期版): 持仓≥14天仍未达止盈 → 认真评估"清仓让位"(资金被占用+每晚资金费率),
 除非日线动能明确强势(放量加速/连续新高)才可再给最多14天, 到期仍无起色必须 CLOSE;
 批次1/2/3的加仓补货同样受约束。
@@ -234,9 +241,26 @@ def build_manage_prompt(inp: "AIInput", pos: dict[str, Any]) -> str:
     lines = [
         f"持仓: {inp.symbol} [{dir_label}] 开仓价${entry:.2f}  现价${last:.2f}  "
         f"浮盈亏{pnl_pct:+.2f}%  名义${float(pos.get('notional', 0)):.1f}  "
-        f"批次{batches}/3  已持有{hold_days:.1f}天(≥7天触发'清仓让位'评估)",
+        f"批次{batches}/3  已持有{hold_days:.1f}天(≥14天触发'清仓让位'评估)",
         f"账户: {_render_account(inp.account)}",
     ]
+    # 利润保护阶梯(2026-09 用户要求: 控制好止盈止损; 只升不降, 空单镜像)
+    if direction == "long":
+        if pnl_pct >= 6:
+            guard = f"⚠️浮盈{pnl_pct:.1f}%≥6% → 止损应上移至 成本+3% = ${entry * 1.03:.2f}(锁定大部分利润)"
+        elif pnl_pct >= 4:
+            guard = f"浮盈{pnl_pct:.1f}%≥4% → 止损应上移至 成本+0.5% = ${entry * 1.005:.2f}(保本线)"
+        else:
+            guard = f"浮盈{pnl_pct:+.1f}% < 4% → 不动止损(正常波动; 禁止因小额浮盈上移)"
+    else:
+        if pnl_pct >= 6:
+            guard = f"⚠️浮盈{pnl_pct:.1f}%≥6% → 止损应下移至 成本-3% = ${entry * 0.97:.2f}(锁定利润)"
+        elif pnl_pct >= 4:
+            guard = f"浮盈{pnl_pct:.1f}%≥4% → 止损应下移至 成本-0.5% = ${entry * 0.995:.2f}(保本线)"
+        else:
+            guard = f"浮盈{pnl_pct:+.1f}% < 4% → 不动止损(正常波动)"
+    lines.append(f"🛡 利润保护阶梯: {guard}")
+
     if inp.market_env:
         lines.insert(0, inp.market_env)
     if inp.daily_levels:

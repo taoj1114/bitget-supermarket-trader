@@ -82,7 +82,12 @@ class PaperCfg:
 @dataclass
 class Config:
     mode: str = "paper"
-    scan_interval: int = 1800
+    scan_interval: int = 1800          # 兼容字段(默认/隔夜)
+    # 动态节拍(2026-09 用户要求: 盘中缩短读取间隔, 及时控制止盈止损)
+    interval_regular: int = 300        # 美股盘中: 5 分钟(管仓)
+    interval_prepost: int = 900        # 盘前/盘后: 15 分钟
+    interval_closed: int = 1800        # 隔夜: 30 分钟
+    scan_open_every: int = 3           # 开仓扫描每 N 轮一次(管仓每轮都跑)
     skip_weekend: bool = True
     max_symbols_per_round: int = 15
     margin_per_trade_usd: float = 2.0
@@ -114,6 +119,14 @@ class Config:
     state_dir: str = "state"
     paper: PaperCfg = field(default_factory=PaperCfg)
 
+    def interval_for_session(self, session: str) -> int:
+        """按美股时段返回本轮间隔(秒)。"""
+        if session == "regular":
+            return self.interval_regular
+        if session in ("pre_market", "post_market"):
+            return self.interval_prepost
+        return self.interval_closed
+
     @classmethod
     def load(cls, path: str | Path = "config.yaml") -> "Config":
         p = Path(path)
@@ -132,6 +145,10 @@ class Config:
         return cls(
             mode=str(g("mode", "paper")).lower(),
             scan_interval=int(g("scan_interval", 1800)),
+            interval_regular=int(g("interval_regular", 300)),
+            interval_prepost=int(g("interval_prepost", 900)),
+            interval_closed=int(g("interval_closed", 1800)),
+            scan_open_every=int(g("scan_open_every", 3)),
             skip_weekend=bool(g("skip_weekend", True)),
             max_symbols_per_round=int(g("max_symbols_per_round", 15)),
             scan_workers=int(g("scan_workers", 4)),

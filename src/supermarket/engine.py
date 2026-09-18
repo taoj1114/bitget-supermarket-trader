@@ -525,7 +525,7 @@ class SupermarketEngine:
     # AI 决策不进 lessons 注入, 只保留交易记录与品种历史(get_symbol_history)。
 
     # ---------- 主循环 ----------
-    def run_once(self) -> dict[str, Any]:
+    def run_once(self, do_scan: bool = True) -> dict[str, Any]:
         t0 = time.time()
         self._load_contracts()
         account = self._account()
@@ -546,7 +546,10 @@ class SupermarketEngine:
         self._reconcile()
         self._ensure_protection()
         self._manage_positions(account)
-        self._scan(account)
+        if do_scan:
+            self._scan(account)
+        else:
+            log.info("本轮仅管仓(开仓扫描按更长节拍, 盘中提速不影响进货纪律)")
         snap = self._snapshot(account)
         self._write_snapshot(snap)
         log.info("本轮完成 (%.1fs) 引擎状态: %s", time.time() - t0,
@@ -633,22 +636,28 @@ def main() -> None:
 
     from supermarket.market import us_session
     last_skip_log = 0.0
+    round_no = 0
     while True:
         try:
+            _sess = us_session()
             # 非交易日/非交易时段门: 周末停机(中线策略不需要周末盯盘, TPSL在交易所保护)
-            if cfg.skip_weekend and us_session().startswith("weekend"):
+            if cfg.skip_weekend and _sess.startswith("weekend"):
                 now = time.time()
                 if now - last_skip_log > 3600:  # 每小时只记一次
                     log.info("周末停机中(美股休市), 持仓由交易所侧 TPSL 保护")
                     last_skip_log = now
                 time.sleep(600)
                 continue
-            eng.run_once()
+            # 分层节拍(2026-09 用户要求): 管仓每轮都跑(盘中 5 分钟及时控制止盈止损),
+            # 开仓扫描每 scan_open_every 轮一次(保持进货纪律, 不被盘中噪声牵着走)
+            do_scan = (round_no % max(1, cfg.scan_open_every) == 0)
+            eng.run_once(do_scan=do_scan)
+            round_no += 1
         except KeyboardInterrupt:
             break
         except Exception as e:
             log.exception("本轮异常: %s", str(e)[:150])
-        time.sleep(cfg.scan_interval)
+        time.sleep(cfg.interval_for_session(us_session()))
 
 
 if __name__ == "__main__":

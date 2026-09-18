@@ -2,7 +2,11 @@
 # 密钥一律从 .env 注入 (${VAR} 语法), 不落 yaml
 
 mode: paper                  # paper | live  (live 需 LIVE_CONFIRM=yes + 账户有余额)
-scan_interval: 1800          # 主循环间隔(秒)= 30分钟一次(中线交易定位; 止损止盈由交易所TPSL实时保护, 不依赖扫描频率)
+scan_interval: 1800          # 兼容字段(隔夜默认)
+interval_regular: 300        # 美股盘中: 5 分钟一轮(管仓及时, 用户 2026-09-18 要求)
+interval_prepost: 900        # 盘前/盘后: 15 分钟
+interval_closed: 1800        # 隔夜: 30 分钟
+scan_open_every: 3           # 开仓扫描每 3 轮一次(盘中=15分钟; 管仓每轮都跑, 保持进货纪律)
 skip_weekend: true           # 周末(美东六日)完全停机不扫描, 省token; 持仓由交易所侧TPSL保护
 max_symbols_per_round: 15    # 每轮并发扫描的标的上限(决策并行, 执行串行)
 

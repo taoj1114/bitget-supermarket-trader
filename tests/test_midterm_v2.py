@@ -35,3 +35,36 @@ def test_hold_period_stated_as_days():
     from supermarket.prompts import SYSTEM_OPEN
 
     assert "数日~数周" in SYSTEM_OPEN
+
+
+def test_dynamic_intervals():
+    """盘中提速(2026-09 用户要求): 盘中 5 分钟管仓, 开仓每 3 轮(15 分钟)。"""
+    c = Config.load()
+    assert c.interval_regular == 300, "盘中应为 5 分钟"
+    assert c.interval_prepost == 900 and c.interval_closed == 1800
+    assert c.scan_open_every == 3
+    assert c.interval_for_session("regular") == 300
+    assert c.interval_for_session("pre_market") == 900
+    assert c.interval_for_session("closed") == 1800
+    assert c.interval_for_session("weekend") == 1800
+
+
+def test_profit_guard_ladder_rules():
+    """利润保护阶梯: <4% 不动, ≥4% 保本, ≥6% 锁 3%(只升不降)。"""
+    from supermarket.prompts import SYSTEM_MANAGE
+
+    assert "利润保护阶梯" in SYSTEM_MANAGE
+    assert "成本+0.5%" in SYSTEM_MANAGE and "成本+3%" in SYSTEM_MANAGE
+    assert "不动止损" in SYSTEM_MANAGE
+    # 管仓 prompt 必须实际渲染出该行
+    src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "prompts.py").read_text()
+    mi = src.index("def build_manage_prompt")
+    assert "利润保护阶梯" in src[mi:], "仅 build_manage_prompt 渲染保护阶梯(开仓prompt不应含)"
+
+
+def test_scan_layering():
+    """分层节拍: 管仓每轮跑, 开仓按 scan_open_every。"""
+    src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "engine.py").read_text()
+    assert "def run_once(self, do_scan" in src
+    assert "round_no % max(1, cfg.scan_open_every)" in src
+    assert "interval_for_session" in src
