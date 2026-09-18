@@ -190,6 +190,28 @@ class SupermarketEngine:
             except Exception:
                 pass
 
+    def _load_data_bad(self) -> None:
+        """数据不足标的缓存(24h 有效)。
+
+        2026-09-18 体检优化: 池内 34 只日线<35根的标的每轮被护栏跳过却仍占候选位,
+        这里把它们排除出候选, 让位给可交易标的; 24h 后自动重验(数据会随时间积累)。
+        """
+        p = self.state_dir / "data_insufficient.json"
+        try:
+            raw = json.loads(p.read_text()) if p.exists() else {}
+            now = time.time()
+            self._data_bad = {k: float(v) for k, v in raw.items() if now - float(v) < 86400}
+        except Exception:
+            self._data_bad = {}
+
+    def _mark_data_bad(self, sym: str) -> None:
+        self._data_bad[sym] = time.time()
+        try:
+            (self.state_dir / "data_insufficient.json").write_text(
+                json.dumps(self._data_bad, ensure_ascii=False))
+        except Exception as e:
+            log.debug("数据不足缓存写入失败: %s", str(e)[:50])
+
     def _refresh_market_state(self) -> None:
         """大盘状态(管仓防守 + 开仓门控共用)。
 
@@ -371,8 +393,9 @@ class SupermarketEngine:
             except (TypeError, ValueError):
                 chg[t["symbol"]] = 0.0
         # 流动性门槛(ceiling: 保留全部经 hot 白名单)
+        _bad = getattr(self, "_data_bad", {})
         valid = [s for s in vol
-                 if s in self._contracts and s not in held
+                 if s in self._contracts and s not in held and s not in _bad
                  and (vol[s] >= self.cfg.min_turnover_floor or s in set(self.cfg.hot_symbols))]
         hot = [s for s in self.cfg.hot_symbols if s in valid]
         movers = sorted((s for s in valid if s not in hot), key=lambda s: -chg.get(s, 0))[:3]
@@ -466,6 +489,7 @@ class SupermarketEngine:
                 if not getattr(inp, "data_ok", True):
                     self.memory.record_hold(sym, "REJECT: 日线数据不足(K线<35根), 无法决策", session)
                     log.debug("跳过 %s: 日线数据不足", sym)
+                    self._mark_data_bad(sym)   # 登记 24h 黑名单, 释放候选位
                     return None
                 decision = self.provider.decide_open(SYSTEM_OPEN, build_open_prompt(inp))
                 return (sym, quote, inp, decision)
@@ -577,6 +601,7 @@ class SupermarketEngine:
         # tick 平掉的仓立即补录(不拖到下一轮): 防 crash 丢失 + 复盘即时
         self._reconcile()
         self._ensure_protection()
+        self._load_data_bad()          # 数据不足标的缓存(候选过滤用)
         self._refresh_market_state()   # 大盘状态先行(管仓与开仓共用)
         self._manage_positions(account)
         if do_scan:

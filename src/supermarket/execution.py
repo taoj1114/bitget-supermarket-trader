@@ -316,6 +316,10 @@ class RealExecutor:
         return self._state.setdefault("holdings", {}).get(symbol, {})
 
     def _save(self) -> None:
+        # 订单流水裁剪(保留最近 200 条, 防长期运行无限增长; 2026-09-18 体检优化)
+        orders = self._state.get("orders")
+        if isinstance(orders, list) and len(orders) > 200:
+            self._state["orders"] = orders[-200:]
         _atomic_write(self._file, self._state)
 
     def account(self, symbol: str = "NVDAUSDT") -> dict[str, Any]:

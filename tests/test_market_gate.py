@@ -101,3 +101,13 @@ def test_resilience_fixes():
     assert "holdings 自愈" in eng, "应自动清理陈旧 holdings"
     pr = (root / "prompts.py").read_text()
     assert "盈亏比≥1.5" not in pr, "旧盈亏比残留应清除"
+
+
+def test_optimizations_v2():
+    """体检优化(2026-09-18): 数据不足标的黑名单 + 订单流水裁剪。"""
+    root = Path(__file__).resolve().parent.parent / "src" / "supermarket"
+    eng = (root / "engine.py").read_text()
+    assert "_load_data_bad" in eng and "_mark_data_bad" in eng
+    assert "s not in _bad" in eng, "候选应过滤数据不足标的"
+    ex = (root / "execution.py").read_text()
+    assert "orders[-200:]" in ex, "订单流水应裁剪"
