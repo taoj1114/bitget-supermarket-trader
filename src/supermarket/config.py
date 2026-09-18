@@ -88,6 +88,7 @@ class Config:
     interval_prepost: int = 900        # 盘前/盘后: 15 分钟
     interval_closed: int = 1800        # 隔夜: 30 分钟
     scan_open_every: int = 3           # 开仓扫描每 N 轮一次(管仓每轮都跑)
+    momentum_exit_floor: float = 1.5   # 程序兜底: 动量"乏力"且浮盈≥此值 → 直接兑现(实证回吐率66.2%)
     skip_weekend: bool = True
     max_symbols_per_round: int = 15
     margin_per_trade_usd: float = 2.0
@@ -149,6 +150,7 @@ class Config:
             interval_prepost=int(g("interval_prepost", 900)),
             interval_closed=int(g("interval_closed", 1800)),
             scan_open_every=int(g("scan_open_every", 3)),
+            momentum_exit_floor=float(g("momentum_exit_floor", 1.5)),
             skip_weekend=bool(g("skip_weekend", True)),
             max_symbols_per_round=int(g("max_symbols_per_round", 15)),
             scan_workers=int(g("scan_workers", 4)),

@@ -69,3 +69,13 @@ def test_scan_layering():
     assert "def run_once(self, do_scan" in src
     assert "round_no % max(1, cfg.scan_open_every)" in src
     assert "interval_for_session" in src
+
+
+def test_momentum_guard_backstop():
+    """程序兜底(用户批准 2026-09-18): 动量乏力 + 浮盈≥1.5% → 程序直接兑现。"""
+    c = Config.load()
+    assert c.momentum_exit_floor == 1.5
+    src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "engine.py").read_text()
+    assert "动量兜底" in src, "缺程序兜底逻辑"
+    assert "MOMENTUM_GUARD" in src, "兜底平仓应有独立原因标记(便于统计)"
+    assert "momentum_state" in src

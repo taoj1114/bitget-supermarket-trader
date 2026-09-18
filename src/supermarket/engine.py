@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from supermarket import __version__
-from supermarket.ai import build_provider
+from supermarket.ai import ManageDecision, build_provider
 from supermarket.bitget_client import BitgetClient
 from supermarket.config import Config, load_dotenv
 from supermarket.execution import PaperExecutor, RealExecutor
@@ -263,6 +263,17 @@ class SupermarketEngine:
                     pnl_pct = (last - entry) / entry * 100 if entry else 0.0
                 inp = self.market.build_input(sym, quote, account,
                                               lessons=lessons, manage=True)
+                # 程序兜底(2026-09-18 用户批准): 动量"乏力" + 浮盈≥阈值 → 直接兑现, 不给 AI 犹豫空间
+                # 实证: 乏力状态浮盈回吐成亏损概率 66.2%(推进中仅 40.1%)
+                # 案例: NET 浮盈+2.98% 时动量已转乏力, AI 犹豫 → 回撤至止损 -$0.30
+                _floor = float(getattr(self.cfg, "momentum_exit_floor", 1.5))
+                if (str(getattr(inp, "momentum_state", "")) == "乏力" and pnl_pct >= _floor):
+                    log.warning("⚡ 动量兜底: %s 动量乏力 + 浮盈%.2f%% ≥ %.1f%% → 程序直接兑现"
+                                "(实证回吐概率66.2%%)", sym, pnl_pct, _floor)
+                    return (pos, quote, ManageDecision(
+                        action="CLOSE",
+                        reason=(f"程序兜底: 动量乏力(无新高+跌破MA5)+浮盈{pnl_pct:.2f}%≥{_floor}%"
+                                f" → 兑现(实证回吐概率66.2%)")))
                 decision = self.provider.decide_manage(
                     SYSTEM_MANAGE, build_manage_prompt(inp, {
                         "symbol": sym, "avg_entry": entry, "notional": pos.notional,
@@ -299,7 +310,8 @@ class SupermarketEngine:
                     self.memory.set_max_pnl(sym, (last - entry) / entry * 100)
             log.info("管仓 %s → %s | %s", sym, decision.action, decision.reason[:60])
             if decision.is_close:
-                res = self.executor.close(sym, reason="AI_CLOSE")
+                _why = "MOMENTUM_GUARD" if "程序兜底" in (decision.reason or "") else "AI_CLOSE"
+                res = self.executor.close(sym, reason=_why)
                 if res.get("ok"):
                     pnl = float(res.get("pnl", 0))
                     self.memory.close_decision(sym, float(res.get("exit", last)), pnl,
