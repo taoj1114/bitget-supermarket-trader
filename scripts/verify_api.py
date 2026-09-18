@@ -62,7 +62,7 @@ def main() -> None:
 
     # 5. 残留计划单提醒
     try:
-        plans = bg.pending_plans()
+        plans = bg.v3_strategy_orders()
         if plans:
             print(f"⚠️  未触发计划单 {len(plans)} 个(旧残留): {[p.get('symbol') for p in plans[:5]]}")
             print("    实盘前建议人工在 App 里确认/清理")

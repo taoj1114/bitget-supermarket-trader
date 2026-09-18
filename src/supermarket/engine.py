@@ -112,7 +112,28 @@ class SupermarketEngine:
     # ---------- 1. 对账 ----------
     def _reconcile(self) -> None:
         """本地 open decisions 与实际持仓比对; 交易所/纸面已平的仓 → 补录。"""
-        held = {p.symbol for p in self.executor.positions()}
+        # 修复(2026-09-18): 持仓查询失败必须**跳过对账** —— executor.positions() 内部吞异常返回 [],
+        # 会让全部持仓被误判为"已平仓"→ 批量假补录(实测 4 条 price=0/pnl=0 脏记录污染账目)
+        if self.executor.name == "real":
+            try:
+                raw_pos = self.bg.v3_positions()
+            except Exception as e:
+                log.warning("对账跳过: 交易所持仓查询失败(%s)", str(e)[:80])
+                return
+            held = {r.get("symbol") for r in (raw_pos or [])}
+            # 安全网: 本地有开仓记录却查到空持仓 → 极可能查询异常, 二次确认后再决定
+            if not held and self.memory.open_decisions():
+                time.sleep(1.0)
+                try:
+                    raw2 = self.bg.v3_positions() or []
+                except Exception:
+                    return
+                held = {r.get("symbol") for r in raw2}
+                if not held:
+                    log.warning("对账: 交易所连续两次返回空持仓 → 本轮不补录(防误判)")
+                    return
+        else:
+            held = {p.symbol for p in self.executor.positions()}
         # paper 模式优先用执行器记录的真实已平仓(含准确 pnl/exit)
         paper_closed: dict[str, dict] = {}
         if self.executor.name == "paper":
@@ -141,6 +162,10 @@ class SupermarketEngine:
                     entry = float(d.get("entry", 0))
                     if entry > 0 and price > 0:
                         pnl = (price - entry) / entry * float((d.get("params") or {}).get("notional", 0))
+            # 可疑过滤: 无持仓但价格与盈亏都取不到 → 不写记录(留待下轮确认)
+            if price <= 0 and pnl == 0.0:
+                log.warning("对账可疑: %s 判定已平仓但取不到价格/盈亏 → 本轮不补录", sym)
+                continue
             self.memory.close_decision(sym, price, pnl, "EXCHANGE_SLTP(对账补录)",
                                        max_pnl_pct=float(d.get("max_pnl_pct", 0)))
             self.risk.on_close(pnl)

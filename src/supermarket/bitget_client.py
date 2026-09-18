@@ -194,36 +194,6 @@ class BitgetClient:
         return self._request("POST", "/api/v2/mix/order/cancel-plan-order",
                              {"symbol": symbol, "marginCoin": MARGIN_COIN, "orderId": order_id})
 
-    def pending_plans(self, symbol: str | None = None,
-                      plan_type: str = "profit_loss") -> list[dict[str, Any]]:
-        """未触发 TPSL 计划单(返回 list)。实测: planType 必填, TPSL 类型名为 profit_loss。"""
-        path = (f"/api/v2/mix/order/orders-plan-pending?productType={PRODUCT_TYPE}"
-                f"&planType={plan_type}")
-        if symbol:
-            path += f"&symbol={symbol}"
-        try:
-            d = self._request("GET", path)
-        except Exception as e:
-            log.warning("pending_plans 查询失败: %s", str(e)[:80])
-            return []
-        if isinstance(d, dict):
-            for k in ("entrustedList", "planList", "list"):
-                if d.get(k):
-                    return list(d[k])
-            return []
-        return list(d or [])
-
-    # ==================== V3 (统一账户 UTA, 2026-09 实测) ====================
-    # 背景: Bitget 2026-09-15 起批量升级经典账户→统一账户(UTA), 经典 v2 账户/交易
-    # 接口在 UTA 下全部报 40085。行情(v2 market)仍可用; 账户/交易必须走 v3。
-    # 实测要点(全部真金验证过):
-    #   - symbol 同 v2(NVDAUSDT), category=USDT-FUTURES
-    #   - holdMode=hedge_mode: 开多 side=buy+posSide=long; 平多 side=sell+posSide=long
-    #     ⚠️ hedge 模式平仓不能带 reduceOnly(25238)
-    #   - 下单可带 preset TP/SL(stopLoss/takeProfit + slTriggerBy/tpTriggerBy=mark),
-    #     成交后自动转为交易所侧策略单(无裸奔窗口); 平仓后自动撤销
-    #   - 最小下单价值 $5(45110); 数量/价格精度取 instruments(quantityPrecision/pricePrecision)
-    #   - Reality 股票订单限速 5/sec/UID
 
     def v3_account(self) -> dict[str, Any]:
         """统一账户资产。可用保证金 = assets[USDT].available。"""

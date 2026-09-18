@@ -75,3 +75,18 @@ def test_trend_progress_fields():
     assert "近5日新高" in src
     p = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "prompts.py").read_text()
     assert "趋势仍在推进" in p
+
+
+def test_reconcile_guards():
+    """对账双保险(防假补录污染账目): 查询失败跳过 + 可疑记录不补录。"""
+    src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "engine.py").read_text()
+    assert "对账跳过" in src, "持仓查询失败时应跳过对账"
+    assert "对账可疑" in src, "price=0 且 pnl=0 的记录不应补录"
+    assert "连续两次返回空持仓" in src, "空持仓应二次确认"
+
+
+def test_no_v2_pending_plans():
+    """v2 计划单接口在统一账户下报 40085, 不应再被调用(死代码已删)。"""
+    bc = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "bitget_client.py").read_text()
+    assert "orders-plan-pending" not in bc
+    assert "def v3_strategy_orders" in bc
