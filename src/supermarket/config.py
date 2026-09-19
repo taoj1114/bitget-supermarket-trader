@@ -93,6 +93,7 @@ class Config:
     max_symbols_per_round: int = 15
     margin_per_trade_usd: float = 2.0
     leverage: int = 20
+    leverage_min: int = 3
     margin_mode: str = "crossed"
     max_notional_mult: float = 6.0
     max_positions_divisor: int = 10  # 保留(兼容); 实际仓数由 risk.py 按 净值×6÷每仓 推导
@@ -156,6 +157,7 @@ class Config:
             scan_workers=int(g("scan_workers", 4)),
             margin_per_trade_usd=float(g("margin_per_trade_usd", 2.0)),
             leverage=int(g("leverage", 20)),
+            leverage_min=int(g("leverage_min", 3)),
             margin_mode=str(g("margin_mode", "crossed")).lower(),
             max_notional_mult=float(g("max_notional_mult", 6.0)),
             max_positions_divisor=int(g("max_positions_divisor", 10)),

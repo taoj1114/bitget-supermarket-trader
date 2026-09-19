@@ -13,7 +13,8 @@ max_symbols_per_round: 15    # 每轮并发扫描的标的上限(决策并行, �
 
 # ---- 下单参数(用户确认的设计) ----
 margin_per_trade_usd: 2.0    # 每仓保证金上限 $2
-leverage: 20                 # 目标杠杆, 执行时取 min(20, 合约maxLever)
+leverage: 20                 # 杠杆上限(执行时取 min(20, 合约maxLever))
+leverage_min: 3              # AI 可用的最低杠杆(名义=$2×杠杆; 3x=$6 仍满足交易所最低$5)
 margin_mode: crossed         # 全仓模式(核心: 整体保证金扛亏损单)
 
 # ---- 风控硬约束 ----

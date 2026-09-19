@@ -102,8 +102,13 @@ class RiskEngine:
                       long_count: int, short_count: int,
                       batches_used: int = 0,
                       existing_pnl_pct: float = 0.0,
-                      existing_entry: float = 0.0) -> tuple[bool, str, dict]:
-        """返回 (ok, reason, 下单参数)。side: long(做多) / short(做空)。"""
+                      existing_entry: float = 0.0,
+                      leverage: int | None = None) -> tuple[bool, str, dict]:
+        """返回 (ok, reason, 下单参数)。side: long(做多) / short(做空)。
+
+        leverage: AI 决定的风险预算(2026-09-19 用户要求: 按行情调节杠杆控制风险)。
+        名义 = 保证金 × 杠杆, 故杠杆=单笔风险敞口大小; 程序只做范围钳制(不替AI决策)。
+        """
         self.rejects.clear()
         equity = float(account.get("equity", 0))
         notional_now = float(account.get("notional", 0))
@@ -116,7 +121,14 @@ class RiskEngine:
         if self._day_drawdown_hit(equity):
             return False, f"当日回撤≥{self.cfg.max_daily_drawdown_pct:.0f}%, 停止新开仓", {}
 
-        lev = min(self.cfg.leverage, int(contract.get("maxLever", 20)))
+        # 杠杆范围钳制: AI 给值则在 [cfg.leverage_min, min(cfg.leverage, 合约maxLever)] 内取用;
+        # 未给则用上限(=旧行为, 向后兼容); 低于下限抬到下限(保证名义≥交易所最低), 高于上限压到上限。
+        max_lev = min(self.cfg.leverage, int(contract.get("maxLever", 20)))
+        min_lev = max(1, min(self.cfg.leverage_min, max_lev))
+        if leverage:
+            lev = max(min_lev, min(max_lev, int(leverage)))
+        else:
+            lev = max_lev
         margin = min(self.cfg.margin_per_trade_usd, equity * 0.6)
         notional = margin * lev
         min_usdt = float(contract.get("minTradeUSDT", 5))

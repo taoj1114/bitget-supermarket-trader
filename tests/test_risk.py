@@ -28,11 +28,52 @@ CONTRACT = {"maxLever": 20, "sizeMultiplier": 0.01, "minTradeUSDT": 5, "volumePl
 
 
 def V(symbol="NVDAUSDT", price=220.0, side="long", sl=213.0, tp=235.0,
-       contract=CONTRACT, acc=None, longs=0, shorts=0):
+       contract=CONTRACT, acc=None, longs=0, shorts=0, leverage=None):
     """便捷调用: 返回 (ok, reason, params)。"""
     eng, a = make_engine()
     acc = acc or a
-    return eng.validate_open(symbol, price, side, sl, tp, contract, acc, longs, shorts)
+    return eng.validate_open(symbol, price, side, sl, tp, contract, acc, longs, shorts,
+                             leverage=leverage)
+
+
+# ---------- AI 决定杠杆(2026-09-19 用户要求: 按行情调节风险预算) ----------
+def test_ai_low_leverage_shrinks_risk():
+    """AI 给 8x → 名义 $16(风险减半), 保证金仍 $2。"""
+    ok, reason, params = V(sl=213.0, tp=235.0, leverage=8)
+    assert ok, reason
+    assert params["leverage"] == 8
+    assert 14.0 <= params["notional"] <= 17.0, params["notional"]
+
+
+def test_ai_leverage_clamped_to_max():
+    """AI 给 50x → 压到上限 20x(程序只钳制范围, 不替 AI 决策)。"""
+    ok, reason, params = V(sl=213.0, tp=235.0, leverage=50)
+    assert ok and params["leverage"] == 20
+
+
+def test_ai_leverage_raised_to_min():
+    """低于下限(1x) → 抬到 3x, 且名义仍满足交易所最低 $5。"""
+    ok, reason, params = V(sl=213.0, tp=235.0, leverage=1)
+    assert ok, reason
+    assert params["leverage"] == 3
+    assert params["notional"] >= 5
+
+
+def test_leverage_absent_uses_default():
+    """AI 未给 leverage → 用上限(=旧行为, 向后兼容)。"""
+    ok, reason, params = V(sl=213.0, tp=235.0)
+    assert ok and params["leverage"] == 20
+
+
+def test_low_leverage_risk_budget_table():
+    """风险预算表: 同一止损下, 杠杆越低单笔最大亏损越小(用户诉求的验证)。"""
+    losses = {}
+    for lev in (3, 8, 20):
+        ok, _, p = V(sl=213.0, tp=245.0, leverage=lev)
+        assert ok
+        losses[lev] = p["notional"] * p["sl_dist_pct"] / 100
+    assert losses[3] < losses[8] < losses[20]
+    assert losses[20] / losses[3] > 3.0   # 高杠杆亏损是低杠杆的数倍
 
 
 # ---------- 多头 ----------

@@ -72,3 +72,14 @@ def test_extract_json_block_lessons():
     from supermarket.ai import _extract_json_block
     block = _extract_json_block('{"lessons":["追高被套","止损太紧"]}')
     assert _json.loads(block)["lessons"] == ["追高被套", "止损太紧"]
+
+def test_parse_leverage_field():
+    """AI 决定杠杆(2026-09-19): 解析 leverage 字段, 缺失/异常为 None。"""
+    d = parse_open_decision('{"action":"BUY","leverage":12,"stop_loss":100.0,"take_profit":115.0,"reason":"x"}')
+    assert d.leverage == 12
+    d2 = parse_open_decision('{"action":"HOLD","stop_loss":null,"take_profit":null,"reason":"x"}')
+    assert d2.leverage is None
+    d3 = parse_open_decision('{"action":"BUY","leverage":"8","stop_loss":100.0,"take_profit":115.0,"reason":"x"}')
+    assert d3.leverage == 8, "字符串数字应可解析"
+    d4 = parse_open_decision('{"action":"BUY","leverage":"abc","stop_loss":100.0,"take_profit":115.0,"reason":"x"}')
+    assert d4.leverage is None, "非法值应降级为 None(风控用默认值)"

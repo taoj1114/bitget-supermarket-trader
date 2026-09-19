@@ -28,6 +28,7 @@ _MAX_RETRIES_DEFAULT = 3
 @dataclass
 class OpenDecision:
     action: str = "HOLD"          # BUY / SELL / HOLD
+    leverage: int | None = None   # AI 决定的风险预算(3~20x, 名义=$2保证金×杠杆; 2026-09-19 用户要求)
     stop_loss: float | None = None
     take_profit: float | None = None
     reason: str = ""
@@ -99,8 +100,10 @@ def parse_open_decision(raw: str) -> OpenDecision:
                 sl = re.search(r'"stop_loss"\s*:\s*([\d.]+)', text)
                 tp = re.search(r'"take_profit"\s*:\s*([\d.]+)', text)
                 rs = re.search(r'"reason"\s*:\s*"([^"]*)"', text)
+                lv = re.search(r'"leverage"\s*:\s*(\d+)', text)
                 obj = {
                     "action": act.group(1) if act else "HOLD",
+                    "leverage": int(lv.group(1)) if lv else None,
                     "stop_loss": float(sl.group(1)) if sl else None,
                     "take_profit": float(tp.group(1)) if tp else None,
                     "reason": rs.group(1) if rs else (text[:80] if text else ""),
@@ -109,6 +112,11 @@ def parse_open_decision(raw: str) -> OpenDecision:
     if action not in ("BUY", "SELL", "HOLD"):
         action = "HOLD"
     try:
+        _lv = obj.get("leverage")
+        leverage = int(float(_lv)) if _lv not in (None, "") else None
+    except (TypeError, ValueError):
+        leverage = None
+    try:
         sl = float(obj.get("stop_loss")) if obj.get("stop_loss") not in (None, "") else None
     except (TypeError, ValueError):
         sl = None
@@ -116,7 +124,7 @@ def parse_open_decision(raw: str) -> OpenDecision:
         tp = float(obj.get("take_profit")) if obj.get("take_profit") not in (None, "") else None
     except (TypeError, ValueError):
         tp = None
-    return OpenDecision(action=action, stop_loss=sl, take_profit=tp,
+    return OpenDecision(action=action, leverage=leverage, stop_loss=sl, take_profit=tp,
                         reason=str(obj.get("reason", "")), raw=text)
 
 
