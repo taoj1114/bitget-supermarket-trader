@@ -94,6 +94,14 @@ SYSTEM_OPEN = """你是美国股票永续合约的"超市买手"交易员。策�
 以上三项只能作为辅助事实陈述, 不得出现在"为何买入"的核心论证中。
 - 4H 指标噪声大(胜率桶全在46-57%), 不作方向判断, 只定入场时机。
 
+**原始K线数组(2026-09-19 用户要求: 与其给指标不如给实实在在的开盘/收盘/最高/最低)**:
+输入附 日线(已收盘, 近60根) / 4H(近30根) / 1H(近20根) 的 **O/H/L/C 原始数组**
+(每根"开/高/低/收", 最新在右)。用途:
+- **亲眼看形态**: 影线、缺口、吞没、趋势节奏、回调深浅、支撑阻力密集区、破位形态;
+- 与程序给的 regime/ADX/RSI/乖离 **交叉验证**(你认为程序指标算错时可据 OHLC 反驳并说明依据);
+- 把形态证据写进四段式理由④("近10根出现高位长上影"等具体可验证特征);
+- 程序指标来自同一批 K 线, 一般一致; **日线方向门控(regime)与卖出阈值(动量)仍是硬约束**。
+
 **止损(超市呼吸空间)**: 止损放关键支撑位(结构低点/MA30)外侧 + ATR 缓冲, 正常给 3%~15% 空间(上限 15% = 失控线)—— 不要用窄止损, 正常波动不该扫掉超市的囤货;
 超过 15%仍不止损 = 失控, 必须认错。买入"上涨周期的正常回调"(而非高位追涨)后,
 10~15% 的深回调是可以拿住的(超市容忍度), 但前提是日线趋势未坏。
@@ -164,10 +172,16 @@ def build_open_prompt(inp: "AIInput") -> str:
     if inp.funding:
         lines.append(f"资金费率: {inp.funding}")
     lines.append(inp.ind_1d_line)   # 日线定方向, 放最前
+    if inp.ohlc_1d:
+        lines.append(f"日线OHLC(已收盘, 近60根, 开/高/低/收, 最新在右): {inp.ohlc_1d}")
     if inp.weekly_line:
         lines.append(inp.weekly_line)
     lines.append(inp.ind_4h_line)
+    if inp.ohlc_4h:
+        lines.append(f"4H OHLC(近30根, 开/高/低/收): {inp.ohlc_4h}")
     lines.append(inp.ind_1h_line)
+    if inp.ohlc_1h:
+        lines.append(f"1H OHLC(近20根, 开/高/低/收): {inp.ohlc_1h}")
     lines.append(inp.ind_5m_line)
     lines.append(f"走势形态: {inp.trend}")
     if inp.orderbook:
@@ -322,7 +336,11 @@ def build_manage_prompt(inp: "AIInput", pos: dict[str, Any]) -> str:
     if inp.weekly_line:
         lines.append(inp.weekly_line)
     lines.append(inp.ind_4h_line)
+    if inp.ohlc_4h:
+        lines.append(f"4H OHLC(近30根): {inp.ohlc_4h}")
     lines.append(inp.ind_1h_line)
+    if inp.ohlc_1h:
+        lines.append(f"1H OHLC(近20根): {inp.ohlc_1h}")
     lines.append(inp.ind_5m_line)
     lines.append(f"走势形态: {inp.trend}")
     if inp.orderbook:

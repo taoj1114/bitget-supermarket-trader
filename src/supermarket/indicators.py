@@ -344,11 +344,14 @@ def deep_dip_reversal(df_1d: pd.DataFrame) -> tuple[bool, str]:
 # ---------- 一句话渲染 ----------
 def render_ind(ind: IndicatorSet, label: str, extra: str = "") -> str:
     """输出形如: 5m RSI 52.1 MA10 220.5 MA30 219.8 ATR 0.9% VWAP 220.3 量比1.2 BB0.45 ..."""
+    # 2026-09-19(用户: 给实在OHLC而非指标): 移除 量比/BB/MACD —— 实证无预测力
+    # (量比全桶58-60%, MACD多空头标签无区分度), 端侧少给误导, token让给OHLC数组。
     parts = [
         f"RSI{ind.rsi:.1f}", f"MA10 {ind.ma10:.2f}", f"MA30 {ind.ma30:.2f}",
-        f"ATR {ind.atr_pct:.2f}%", f"20期均价 {ind.vwap:.2f}", f"量比{ind.vol_ratio:.2f}",
-        f"BB{ind.bb_pos:.2f}", f"MACD {ind.macd_cross}", f"ADX{ind.adx:.1f}",
+        f"ATR {ind.atr_pct:.2f}%", f"20期均价 {ind.vwap:.2f}",
     ]
+    if ind.adx > 0:
+        parts.append(f"ADX{ind.adx:.1f}")
     if ind.regime != "flat":
         parts.append(f"regime={ind.regime}")
     if label.startswith(("4H", "日线")) or "5m" in label:

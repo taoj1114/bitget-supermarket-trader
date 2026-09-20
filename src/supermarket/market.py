@@ -84,6 +84,9 @@ class AIInput:
     ind_4h_line: str
     ind_1d_line: str
     trend: str
+    ohlc_1d: str = ""            # 日线(已收盘)原始OHLC数组(用户2026-09-19: 给实在价格而非只给指标)
+    ohlc_4h: str = ""
+    ohlc_1h: str = ""
     orderbook: str = ""
     funding: str = ""
     news: str = ""
@@ -103,6 +106,19 @@ class AIInput:
     market_env: str = ""         # 大盘环境(SPY/QQQ, 只读参考)
     daily_levels: str = ""       # 日线关键位(20日高低/MA30, 结构止损参考)
     weekly_line: str = ""        # 周线季节视角(仅13根, 季度方向参考)
+
+
+def fmt_ohlc(df: pd.DataFrame, n: int = 60, ndigits: int = 1) -> str:
+    """原始OHLC紧凑数组(用户2026-09-19): 每根 "开/高/低/收" 逗号分隔, 最新在最后。
+    模块级工具; 放类外避免误截断类定义。"""
+    if df is None or len(df) == 0:
+        return ""
+    try:
+        d = df.tail(n)
+        return ", ".join(f"{o:.{ndigits}f}/{h:.{ndigits}f}/{l:.{ndigits}f}/{c:.{ndigits}f}"
+                         for o, h, l, c in zip(d["open"], d["high"], d["low"], d["close"]))
+    except Exception:
+        return ""
 
 
 class MarketData:
@@ -315,6 +331,9 @@ class MarketData:
             ind_4h_line=render_ind(ind4h, "4H(中趋势):"),
             ind_1d_line=render_ind(ind1d, "日线(已收, 定方向!):"),
             trend=trend,
+            ohlc_1d=fmt_ohlc(df1d_done, 60),   # 与 regime 同源(已收盘日线)
+            ohlc_4h=fmt_ohlc(df4h, 30),
+            ohlc_1h=fmt_ohlc(df1h, 20),
             orderbook=orderbook,
             funding=funding,
             news=news,
