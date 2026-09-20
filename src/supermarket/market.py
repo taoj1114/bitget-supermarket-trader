@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 
 _ET = ZoneInfo("America/New_York")
 
-GRANULARITIES = {"5m": "5m", "1H": "1H", "4H": "4H", "1D": "1D", "1W": "1W"}
+GRANULARITIES = {"5m": "5m", "15m": "15m", "1H": "1H", "4H": "4H", "1D": "1D", "1W": "1W"}
 KLINE_LIMIT = 200
 
 
@@ -87,6 +87,8 @@ class AIInput:
     ohlc_1d: str = ""            # 日线(已收盘)原始OHLC数组(用户2026-09-19: 给实在价格而非只给指标)
     ohlc_4h: str = ""
     ohlc_1h: str = ""
+    ohlc_15m: str = ""           # 2026-09-19 用户追问: 短线周期数据(15m 30根=全交易日)
+    ohlc_5m: str = ""
     orderbook: str = ""
     funding: str = ""
     news: str = ""
@@ -171,6 +173,7 @@ class MarketData:
         lessons = lessons or []
         lim = self.cfg.kline_limits
         df5 = klines_to_df(self.klines(symbol, "5m", lim.get("5m")))
+        df15m = klines_to_df(self.klines(symbol, "15m", lim.get("15m", 60)))
         df1h = klines_to_df(self.klines(symbol, "1H", lim.get("1H")))
         df4h = klines_to_df(self.klines(symbol, "4H", lim.get("4H")))
         df1d = klines_to_df(self.klines(symbol, "1D", lim.get("1D")))
@@ -334,6 +337,8 @@ class MarketData:
             ohlc_1d=fmt_ohlc(df1d_done, 60),   # 与 regime 同源(已收盘日线)
             ohlc_4h=fmt_ohlc(df4h, 30),
             ohlc_1h=fmt_ohlc(df1h, 20),
+            ohlc_15m=fmt_ohlc(df15m, 30),
+            ohlc_5m=fmt_ohlc(df5, 20),
             orderbook=orderbook,
             funding=funding,
             news=news,

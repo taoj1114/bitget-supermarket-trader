@@ -100,7 +100,9 @@ SYSTEM_OPEN = """你是美国股票永续合约的"超市买手"交易员。策�
 - **亲眼看形态**: 影线、缺口、吞没、趋势节奏、回调深浅、支撑阻力密集区、破位形态;
 - 与程序给的 regime/ADX/RSI/乖离 **交叉验证**(你认为程序指标算错时可据 OHLC 反驳并说明依据);
 - 把形态证据写进四段式理由④("近10根出现高位长上影"等具体可验证特征);
-- 程序指标来自同一批 K 线, 一般一致; **日线方向门控(regime)与卖出阈值(动量)仍是硬约束**。
+- 程序指标来自同一批 K 线, 一般一致; **日线方向门控(regime)与卖出阈值(动量)仍是硬约束**;
+- **15m/5m 数组只用于"入场时机"**——回踩企稳点、破位瞬间、关键位得失; **方向判断永远以日线(已收盘)为准**。
+  短周期形态噪声大(实证: 4H指标桶全在46-57%), 别因短周期波动改变中期观点, 也别拿它当四段式"方向"依据。
 
 **止损(超市呼吸空间)**: 止损放关键支撑位(结构低点/MA30)外侧 + ATR 缓冲, 正常给 3%~15% 空间(上限 15% = 失控线)—— 不要用窄止损, 正常波动不该扫掉超市的囤货;
 超过 15%仍不止损 = 失控, 必须认错。买入"上涨周期的正常回调"(而非高位追涨)后,
@@ -182,7 +184,11 @@ def build_open_prompt(inp: "AIInput") -> str:
     lines.append(inp.ind_1h_line)
     if inp.ohlc_1h:
         lines.append(f"1H OHLC(近20根, 开/高/低/收): {inp.ohlc_1h}")
+    if inp.ohlc_15m:
+        lines.append(f"15m OHLC(近30根, 开/高/低/收, 仅入场时机): {inp.ohlc_15m}")
     lines.append(inp.ind_5m_line)
+    if inp.ohlc_5m:
+        lines.append(f"5m OHLC(近20根, 开/高/低/收, 仅入场时机): {inp.ohlc_5m}")
     lines.append(f"走势形态: {inp.trend}")
     if inp.orderbook:
         lines.append(f"盘口: {inp.orderbook}")
@@ -341,7 +347,11 @@ def build_manage_prompt(inp: "AIInput", pos: dict[str, Any]) -> str:
     lines.append(inp.ind_1h_line)
     if inp.ohlc_1h:
         lines.append(f"1H OHLC(近20根): {inp.ohlc_1h}")
+    if inp.ohlc_15m:
+        lines.append(f"15m OHLC(近30根, 仅入场时机): {inp.ohlc_15m}")
     lines.append(inp.ind_5m_line)
+    if inp.ohlc_5m:
+        lines.append(f"5m OHLC(近20根, 仅入场时机): {inp.ohlc_5m}")
     lines.append(f"走势形态: {inp.trend}")
     if inp.orderbook:
         lines.append(f"盘口: {inp.orderbook}")
