@@ -154,3 +154,14 @@ def test_pos5d_chase_high_input():
     assert "pos5d_pct" in mk and "def _pos5d" in mk
     pr = (root / "src" / "supermarket" / "prompts.py").read_text()
     assert "5日区间位置" in pr and "贴顶" in pr and "追高" in pr
+
+
+def test_weather_gate_realtime_layers():
+    """2026-09-22(用户"大盘要看实时"): 天气门=24h雨(-3%) + 盘中急跌戒备(-2.5%) + 查询失败保守禁开。"""
+    root = Path(__file__).resolve().parent.parent
+    eng = (root / "src" / "supermarket" / "engine.py").read_text()
+    assert "盘中急跌" in eng and "保守禁开新仓" in eng, "天气门缺实时/保守层"
+    cfg = (root / "config.yaml").read_text()
+    assert "spy_intraday_drop_gate_pct: -2.5" in cfg, "盘中急跌阈值缺失"
+    mk = (root / "src" / "supermarket" / "market.py").read_text()
+    assert "盘中vs日线MA30" in mk, "market_env 缺实时盘中位置"
