@@ -330,9 +330,10 @@ def test_replenish_margin_not_heavier():
         eng.refresh_day(30.0)
         acc = {"equity": 30.0, "notional": 0.0, "position_count": 1,
                "long_count": 1, "short_count": 0}
+        # 加仓场景: 浮盈4.5%(能补货) + SL抬到均价上方(补货即保护) + 距现价≥3%
         ok, reason, params = eng.validate_open(
-            "NVDAUSDT", 220.0, "long", 213.0, 235.0, CONTRACT, acc, 1, 0,
+            "NVDAUSDT", 230.0, "long", 222.6, 245.0, CONTRACT, acc, 1, 0,
             batches_used=1, leverage=10, margin_usd=4.0,
-            existing_pnl_pct=2.0, existing_entry=220.0)     # 浮盈≥0.5% 才能补货
+            existing_pnl_pct=4.5, existing_entry=220.0)
         assert ok, reason
-        assert params["margin"] <= 2.01, params["margin"]   # 加仓不重于首批(base 2$)
+        assert params["margin"] <= 2.1, params["margin"]   # 加仓不重于首批(base 2$, 0.01股取整容差)
