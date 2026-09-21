@@ -477,7 +477,10 @@ class SupermarketEngine:
                     pass
                 return
         except Exception:
-            pass  # 拿不到 SPY 不阻塞(如网络抖动)
+            # 2026-09-22(用户"大盘看实时"): 天气门查询失败 = 环境未知 → 保守禁开新仓
+            # (与大盘状态门控 fail-safe 同策略; 此前静默放行, 是 00:16 门控失效事故的同类漏洞)
+            log.warning("天气门查询失败 -> 保守禁开新仓(环境未知按最坏假设)")
+            return
         # 市场情绪评分(用户提议 2026-09): 池内宽度 + VIX → 事实输入给 AI(不做程序决策)
         self._sentiment = {}
         self._sentiment_line = ""
