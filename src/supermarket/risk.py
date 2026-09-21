@@ -105,7 +105,8 @@ class RiskEngine:
                       existing_entry: float = 0.0,
                       leverage: int | None = None,
                       margin_usd: float | None = None,
-                      max_positions_ai: int | None = None) -> tuple[bool, str, dict]:
+                      max_positions_ai: int | None = None,
+                      max_mult_ai: float | None = None) -> tuple[bool, str, dict]:
         """返回 (ok, reason, 下单参数)。side: long(做多) / short(做空)。
 
         leverage: AI 决定的风险预算(2026-09-19 用户要求: 按行情调节杠杆控制风险)。
@@ -148,8 +149,12 @@ class RiskEngine:
         if notional <= 0:
             return False, f"名义≤0, 无法开仓({symbol})", {}
 
-        # 名义总量(多+空合计)
-        if notional_now > 0 and (notional_now + notional) > equity * self.cfg.max_notional_mult:
+        # 名义总量(多+空合计) — 倍数上限由 AI 决定(2026-09-22 用户"充分利用资金"),
+        # 程序只钳制 [3, 6](6=爆仓安全线, 不放开); 未给用 cfg(6.0)
+        mult = self.cfg.max_notional_mult
+        if max_mult_ai:
+            mult = max(3.0, min(self.cfg.max_notional_mult, float(max_mult_ai)))
+        if notional_now > 0 and (notional_now + notional) > equity * mult:
             cap = equity * self.cfg.max_notional_mult - notional_now
             return False, (f"名义超限: 已有${notional_now:.0f}+新${notional:.0f}"
                            f">净值×{self.cfg.max_notional_mult:.0f}=${equity * self.cfg.max_notional_mult:.0f}, 剩余额度${cap:.0f}"), {}
@@ -178,10 +183,10 @@ class RiskEngine:
                         return False, (f"AI 设定的总仓数上限 {int(max_positions_ai)} 已达"
                                        f"(多头 {long_count} + 空头 {short_count}), 不再开多"), {}
                 else:
-                    max_pos = min(6, max(1, int(equity * self.cfg.max_notional_mult /
+                    max_pos = min(6, max(1, int(equity * mult /
                                                 (self.cfg.margin_per_trade_usd * lev))))
                     if long_count >= max_pos:
-                        return False, f"多头仓数已达上限 {max_pos}(${equity:.0f}账户, 用户设定6)", {}
+                        return False, f"多头仓数已达上限 {max_pos}(${equity:.0f}账户, 敞口{mult:.0f}x)", {}
             else:
                 if short_count >= self.cfg.max_short_positions:
                     return False, f"空头仓数已达上限 {self.cfg.max_short_positions}(用户设定: 对冲用一两个)", {}

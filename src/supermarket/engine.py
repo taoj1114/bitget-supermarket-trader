@@ -65,6 +65,8 @@ class SupermarketEngine:
             self.executor: Any = RealExecutor(self.bg, cfg, self.state_dir)
         else:
             self.executor = PaperExecutor(cfg, self.state_dir)
+        self._ai_max_pos = None    # AI 决定的总仓数上限(1~6; 2026-09-22 用户)
+        self._ai_max_mult = None   # AI 决定的总名义倍数(3~6x净值; 2026-09-22 用户"充分利用资金")
         self._contracts: dict[str, dict] = {}
         self._contracts_ts = 0.0
         self._scan_rotate = 0
@@ -542,7 +544,10 @@ class SupermarketEngine:
             self.executor.set_quote(sym, quote)
             if decision.max_positions:
                 self._ai_max_pos = max(1, min(6, int(decision.max_positions)))
+            if decision.max_notional_mult:
+                self._ai_max_mult = max(3.0, min(6.0, float(decision.max_notional_mult)))
             ai_max_pos = self._ai_max_pos
+            ai_max_mult = self._ai_max_mult
             if decision.is_buy or decision.is_short:
                 side = "long" if decision.is_buy else "short"
                 # 加仓识别: 同标的同方向已有批次 → 加仓路径(不占新标的名额)
@@ -590,7 +595,8 @@ class SupermarketEngine:
                     existing_entry=existing_entry,
                     leverage=decision.leverage,
                     margin_usd=decision.margin_usd,
-                    max_positions_ai=ai_max_pos)
+                    max_positions_ai=ai_max_pos,
+                    max_mult_ai=ai_max_mult)
                 if not ok:
                     self.memory.record_hold(sym, f"REJECT: {reason}", session)
                     log.warning("拒绝 %s: %s", sym, reason)

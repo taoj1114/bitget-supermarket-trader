@@ -101,3 +101,11 @@ def test_parse_max_positions_field():
     assert d.max_positions == 4
     d2 = parse_open_decision('{"action":"HOLD","stop_loss":null,"take_profit":null,"reason":"x"}')
     assert d2.max_positions is None
+
+
+def test_parse_max_notional_mult_field():
+    """AI 决定资金利用率(2026-09-22): 解析 max_notional_mult, 缺失为 None。"""
+    d = parse_open_decision('{"action":"BUY","leverage":12,"max_positions":4,"max_notional_mult":5.5,"stop_loss":100.0,"take_profit":115.0,"reason":"x"}')
+    assert d.max_notional_mult == 5.5
+    d2 = parse_open_decision('{"action":"HOLD","stop_loss":null,"take_profit":null,"reason":"x"}')
+    assert d2.max_notional_mult is None

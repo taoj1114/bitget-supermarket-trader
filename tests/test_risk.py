@@ -362,3 +362,25 @@ def test_ai_max_positions_caps_total():
         ok2, reason2, _ = eng.validate_open("NVDAUSDT", 220.0, "long", 213.0, 235.0,
                                             CONTRACT, acc2, 2, 1, max_positions_ai=4)
         assert ok2, reason2
+
+
+def test_ai_max_mult_controls_notional_cap():
+    """2026-09-22 用户"充分利用资金": AI 决定总名义倍数(3~6), 程序只钳制不破 6。"""
+    import tempfile
+    from pathlib import Path
+    from supermarket.config import Config
+    from supermarket.risk import RiskEngine
+    cfg = Config()
+    with tempfile.TemporaryDirectory() as td:
+        eng = RiskEngine(cfg, Path(td))
+        eng.refresh_day(50.0)
+        # AI 给 3x → 上限 150; 已用 120 + 新 40 = 160 > 150 → 拒
+        acc = {"equity": 50.0, "notional": 120.0, "position_count": 2,
+               "long_count": 2, "short_count": 0}
+        ok, reason, _ = eng.validate_open("NVDAUSDT", 220.0, "long", 213.0, 235.0,
+                                          CONTRACT, acc, 2, 0, max_mult_ai=3.0)
+        assert not ok and "名义超限" in reason
+        # AI 给 5x → 上限 250 → 160 < 250 → 允许
+        ok2, reason2, _ = eng.validate_open("NVDAUSDT", 220.0, "long", 213.0, 235.0,
+                                            CONTRACT, acc, 2, 0, max_mult_ai=5.0)
+        assert ok2, reason2
