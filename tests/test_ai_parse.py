@@ -83,3 +83,13 @@ def test_parse_leverage_field():
     assert d3.leverage == 8, "字符串数字应可解析"
     d4 = parse_open_decision('{"action":"BUY","leverage":"abc","stop_loss":100.0,"take_profit":115.0,"reason":"x"}')
     assert d4.leverage is None, "非法值应降级为 None(风控用默认值)"
+
+
+def test_parse_margin_usd_field():
+    """AI 决定仓位大小(2026-09-22): 解析 margin_usd, 缺失为 None。"""
+    d = parse_open_decision('{"action":"BUY","leverage":12,"margin_usd":3.5,"stop_loss":100.0,"take_profit":115.0,"reason":"x"}')
+    assert d.margin_usd == 3.5
+    d2 = parse_open_decision('{"action":"HOLD","stop_loss":null,"take_profit":null,"reason":"x"}')
+    assert d2.margin_usd is None
+    d3 = parse_open_decision('{"action":"BUY","leverage":10,"margin_usd":"2.5","stop_loss":100.0,"take_profit":115.0,"reason":"x"}')
+    assert d3.margin_usd == 2.5

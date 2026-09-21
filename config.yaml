@@ -12,7 +12,9 @@ skip_weekend: true           # 周末(美东六日)完全停机不扫描, 省tok
 max_symbols_per_round: 15    # 每轮并发扫描的标的上限(决策并行, 执行串行)
 
 # ---- 下单参数(用户确认的设计) ----
-margin_per_trade_usd: 2.0    # 每仓保证金上限 $2
+margin_per_trade_usd: 2.0    # 每批保证金默认 $2(AI 未给 margin_usd 时)
+margin_min_usd: 0.5          # AI 可用的每批保证金下限
+margin_max_usd: 5.0          # AI 可用的每批保证金上限
 leverage: 20                 # 杠杆上限(执行时取 min(20, 合约maxLever))
 leverage_min: 3              # AI 可用的最低杠杆(名义=$2×杠杆; 3x=$6 仍满足交易所最低$5)
 margin_mode: crossed         # 全仓模式(核心: 整体保证金扛亏损单)

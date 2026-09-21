@@ -103,7 +103,8 @@ class RiskEngine:
                       batches_used: int = 0,
                       existing_pnl_pct: float = 0.0,
                       existing_entry: float = 0.0,
-                      leverage: int | None = None) -> tuple[bool, str, dict]:
+                      leverage: int | None = None,
+                      margin_usd: float | None = None) -> tuple[bool, str, dict]:
         """返回 (ok, reason, 下单参数)。side: long(做多) / short(做空)。
 
         leverage: AI 决定的风险预算(2026-09-19 用户要求: 按行情调节杠杆控制风险)。
@@ -129,7 +130,15 @@ class RiskEngine:
             lev = max(min_lev, min(max_lev, int(leverage)))
         else:
             lev = max_lev
-        margin = min(self.cfg.margin_per_trade_usd, equity * 0.6)
+        # 仓位大小由 AI 决定(2026-09-22 用户要求): 钳制 [margin_min, margin_max], 未给用默认 $2;
+        # 批次>0(加仓)时不超过首批(越加越轻, 递减补货)
+        if margin_usd:
+            margin = max(self.cfg.margin_min_usd, min(self.cfg.margin_max_usd, float(margin_usd)))
+        else:
+            margin = self.cfg.margin_per_trade_usd
+        if batches_used > 0 and margin > self.cfg.margin_per_trade_usd:
+            margin = self.cfg.margin_per_trade_usd   # 加仓默认不超过首批标准(防越加越重)
+        margin = min(margin, equity * 0.6)
         notional = margin * lev
         min_usdt = float(contract.get("minTradeUSDT", 5))
         if notional < min_usdt:

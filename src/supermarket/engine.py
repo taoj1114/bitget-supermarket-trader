@@ -585,7 +585,8 @@ class SupermarketEngine:
                     batches_used=batches_used,
                     existing_pnl_pct=existing_pnl_pct,
                     existing_entry=existing_entry,
-                    leverage=decision.leverage)
+                    leverage=decision.leverage,
+                    margin_usd=decision.margin_usd)
                 if not ok:
                     self.memory.record_hold(sym, f"REJECT: {reason}", session)
                     log.warning("拒绝 %s: %s", sym, reason)

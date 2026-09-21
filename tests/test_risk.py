@@ -28,12 +28,12 @@ CONTRACT = {"maxLever": 20, "sizeMultiplier": 0.01, "minTradeUSDT": 5, "volumePl
 
 
 def V(symbol="NVDAUSDT", price=220.0, side="long", sl=213.0, tp=235.0,
-       contract=CONTRACT, acc=None, longs=0, shorts=0, leverage=None):
+       contract=CONTRACT, acc=None, longs=0, shorts=0, leverage=None, margin_usd=None):
     """便捷调用: 返回 (ok, reason, params)。"""
     eng, a = make_engine()
     acc = acc or a
     return eng.validate_open(symbol, price, side, sl, tp, contract, acc, longs, shorts,
-                             leverage=leverage)
+                             leverage=leverage, margin_usd=margin_usd)
 
 
 # ---------- AI 决定杠杆(2026-09-19 用户要求: 按行情调节风险预算) ----------
@@ -298,3 +298,41 @@ def test_win_resets_streak():
         eng.on_close(0.5)
         assert eng.state.consecutive_losses == 0
         assert eng.paused() == ""
+
+# ---------- AI 决定仓位大小(2026-09-22 用户要求) ----------
+def test_ai_margin_usd_scales_position():
+    """AI 给 margin_usd=3.5 → 名义 = 3.5 × 杠杆(仓位大小可调)。"""
+    ok, reason, params = V(sl=213.0, tp=235.0, leverage=10, margin_usd=3.5)
+    assert ok, reason
+    assert params["margin"] > 3.0 and params["notional"] > 30
+    assert abs(params["notional"] - 35) < 3.0, params["notional"]  # 0.01股步长取整容忍
+
+
+def test_ai_margin_clamped_range():
+    """margin 钳制 [0.5, 5]: 给 0.1 → 0.5; 给 9 → 5; 不给 → 2(取整后 margin 只降不升)。"""
+    def margin_of(m):
+        ok, _, p = V(sl=213.0, tp=235.0, margin_usd=m)
+        return p["margin"]
+    assert abs(margin_of(0.1) - 0.5) < 0.1, margin_of(0.1)      # 下限 0.5
+    assert margin_of(9.0) <= 5.0, margin_of(9.0)                # 上限 5
+    assert margin_of(9.0) > 4.0, margin_of(9.0)
+    assert abs(margin_of(None) - 2.0) < 0.1, margin_of(None)    # 缺省 2
+
+
+def test_replenish_margin_not_heavier():
+    """加仓(批次>0)时 AI 给的 margin 被压回首批标准(递减补货, 越加越轻)。"""
+    from supermarket.config import Config
+    from supermarket.risk import RiskEngine
+    import tempfile
+    cfg = Config()
+    with tempfile.TemporaryDirectory() as td:
+        eng = RiskEngine(cfg, Path(td))
+        eng.refresh_day(30.0)
+        acc = {"equity": 30.0, "notional": 0.0, "position_count": 1,
+               "long_count": 1, "short_count": 0}
+        ok, reason, params = eng.validate_open(
+            "NVDAUSDT", 220.0, "long", 213.0, 235.0, CONTRACT, acc, 1, 0,
+            batches_used=1, leverage=10, margin_usd=4.0,
+            existing_pnl_pct=2.0, existing_entry=220.0)     # 浮盈≥0.5% 才能补货
+        assert ok, reason
+        assert params["margin"] <= 2.01, params["margin"]   # 加仓不重于首批(base 2$)

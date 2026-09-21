@@ -92,6 +92,8 @@ class Config:
     skip_weekend: bool = True
     max_symbols_per_round: int = 15
     margin_per_trade_usd: float = 2.0
+    margin_min_usd: float = 0.5
+    margin_max_usd: float = 5.0
     leverage: int = 20
     leverage_min: int = 3
     margin_mode: str = "crossed"
@@ -157,6 +159,8 @@ class Config:
             max_symbols_per_round=int(g("max_symbols_per_round", 15)),
             scan_workers=int(g("scan_workers", 4)),
             margin_per_trade_usd=float(g("margin_per_trade_usd", 2.0)),
+            margin_min_usd=float(g("margin_min_usd", 0.5)),
+            margin_max_usd=float(g("margin_max_usd", 5.0)),
             leverage=int(g("leverage", 20)),
             leverage_min=int(g("leverage_min", 3)),
             margin_mode=str(g("margin_mode", "crossed")).lower(),
