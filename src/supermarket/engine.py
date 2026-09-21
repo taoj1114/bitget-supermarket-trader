@@ -134,17 +134,18 @@ class SupermarketEngine:
                         log.info("holdings 自愈: 清理陈旧记录 %s", stale)
             except Exception as e:
                 log.debug("holdings 自愈失败: %s", str(e)[:60])
-            # 安全网: 本地有开仓记录却查到空持仓 → 极可能查询异常, 二次确认后再决定
+            # 二次确认(2026-09-21 修复): 查询失败在 try/except 已返回(不会走到这里),
+            # 故"查询成功但空"= 真实空仓, 必须放行补录 —— 旧安全网把真空仓当
+            # "疑似查询异常"拦截, 导致 OKLO/DDOG 类交易所侧平仓永不入账(账实不符)。
             if not held and self.memory.open_decisions():
-                time.sleep(1.0)
                 try:
                     raw2 = self.bg.v3_positions() or []
                 except Exception:
+                    log.warning("对账: 二次确认查询失败 → 本轮不补录")
                     return
                 held = {r.get("symbol") for r in raw2}
                 if not held:
-                    log.warning("对账: 交易所连续两次返回空持仓 → 本轮不补录(防误判)")
-                    return
+                    log.info("对账: 二次确认仍空仓 → 真实已平, 正常补录(空仓≠查询异常)")
         else:
             held = {p.symbol for p in self.executor.positions()}
         # paper 模式优先用执行器记录的真实已平仓(含准确 pnl/exit)

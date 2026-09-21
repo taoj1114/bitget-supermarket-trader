@@ -360,10 +360,13 @@ class BitgetClient:
         return list((d.get("list") if isinstance(d, dict) else d) or [])
 
     def v3_last_closed_pnl(self, symbol: str) -> float:
-        """最近一笔平仓的真实已实现盈亏(execPnl)。"""
+        """最近一笔平仓的真实已实现盈亏(execPnl)。
+        2026-09-21 实测: /api/v3/trade/fills 的 symbol 参数被服务器忽略(返回全量),
+        必须在本地再按 symbol 过滤 —— 否则 OKLO/DDOG 会取到全局最近一笔(KIOXIA)的错误盈亏。"""
         try:
             rows = [f for f in self.v3_fills(symbol, hours=168)
-                    if str(f.get("tradeSide", "")).startswith("close")]
+                    if str(f.get("symbol", "")).upper() == str(symbol).upper()
+                    and str(f.get("tradeSide", "")).startswith("close")]
             if not rows:
                 return 0.0
             rows.sort(key=lambda f: int(f.get("createdTime", 0) or 0))

@@ -70,12 +70,15 @@ class AIMemory:
         self._save()
 
     def close_decision(self, symbol: str, close_price: float, pnl: float,
-                       close_reason: str, max_pnl_pct: float = 0.0) -> bool:
-        """按 symbol 找到未平仓的 decision 补 outcome。返回是否找到。"""
+                       close_reason: str, max_pnl_pct: float = 0.0,
+                       close_ts: float | None = None) -> bool:
+        """按 symbol 找到未平仓的 decision 补 outcome。返回是否找到。
+        outcome 约定: None=开仓中; "closed"=已平; "open"=历史脏值
+        (2026-09-18 恢复记录误标; 2026-09-21 实测导致平仓/补录全部静默失败), 视为开仓。"""
         for d in reversed(self.decisions):
-            if d["symbol"] == symbol and d.get("outcome") is None and d.get("entry"):
+            if d["symbol"] == symbol and d.get("outcome") in (None, "open") and d.get("entry"):
                 d["outcome"] = "closed"
-                d["close_ts"] = time.time()
+                d["close_ts"] = close_ts or time.time()
                 d["close_price"] = close_price
                 d["pnl"] = round(pnl, 6)
                 d["close_reason"] = close_reason
@@ -95,10 +98,11 @@ class AIMemory:
 
     # ---------- 读取 ----------
     def open_decisions(self) -> list[dict]:
-        return [d for d in self.decisions if d.get("outcome") is None and d.get("entry")]
+        # outcome 约定: None=开仓中; "closed"=已平仓; "open" 为历史脏值(2026-09 恢复记录误标), 按开仓处理
+        return [d for d in self.decisions if d.get("outcome") in (None, "open") and d.get("entry")]
 
     def closed_decisions(self) -> list[dict]:
-        return [d for d in self.decisions if d.get("outcome") is not None]
+        return [d for d in self.decisions if d.get("outcome") not in (None, "open")]
 
     def get_symbol_history(self, symbol: str, limit: int = 3) -> str:
         """该股已平仓结果(防锚定: 只注入 outcome 已定的)。"""
@@ -110,19 +114,19 @@ class AIMemory:
         for h in rows:
             lines.append(
                 f"  {time.strftime('%m-%d %H:%M', time.localtime(h['ts']))} "
-                f"{h.get('action', '?')} → {h.get('close_reason') or '-'} pnl=${h.get('pnl', 0):+.3f} "
-                f"| {h['reason'][:40]}"
+                f"{h.get('action', '?')} → {h.get('close_reason') or '-'} pnl=${(h.get('pnl') or 0):+.3f} "
+                f"| {h.get('reason', '')[:40]}"
             )
         return "\n".join(lines)
 
     def stats(self) -> dict[str, Any]:
         closed = self.closed_decisions()
-        wins = [d for d in closed if d.get("pnl", 0) > 0]
+        wins = [d for d in closed if (d.get("pnl") or 0) > 0]
         return {
             "open": len(self.open_decisions()),
             "closed": len(closed),
             "wins": len(wins),
-            "pnl": sum(float(d.get("pnl", 0)) for d in closed),
+            "pnl": sum(float(d.get("pnl") or 0) for d in closed),
             "holds": len(self.holds),
             "lessons": len(self.lessons),
         }
