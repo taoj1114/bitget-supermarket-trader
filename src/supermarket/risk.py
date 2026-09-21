@@ -104,7 +104,8 @@ class RiskEngine:
                       existing_pnl_pct: float = 0.0,
                       existing_entry: float = 0.0,
                       leverage: int | None = None,
-                      margin_usd: float | None = None) -> tuple[bool, str, dict]:
+                      margin_usd: float | None = None,
+                      max_positions_ai: int | None = None) -> tuple[bool, str, dict]:
         """返回 (ok, reason, 下单参数)。side: long(做多) / short(做空)。
 
         leverage: AI 决定的风险预算(2026-09-19 用户要求: 按行情调节杠杆控制风险)。
@@ -168,11 +169,19 @@ class RiskEngine:
                                f"——补货即保护, 最差结果必须是不亏"), {}
         if batches_used == 0:
             if side == "long":
-                # $50账户 → floor(50×6/40)=7 → 用户指定上限6; $30 → 4
-                max_pos = min(6, max(1, int(equity * self.cfg.max_notional_mult /
-                                            (self.cfg.margin_per_trade_usd * lev))))
-                if long_count >= max_pos:
-                    return False, f"多头仓数已达上限 {max_pos}(${equity:.0f}账户, 用户设定6)", {}
+                # 总仓数上限(2026-09-22 用户: 最多开几个仓也归 AI): 
+                # AI 给 max_positions(1~6)= 总仓数上限 → 多头余量 = 上限 - 空头数;
+                # 未给 → 程序推导(净值×6÷每仓名义, 硬顶6, 空头独立上限2)。
+                if max_positions_ai:
+                    cap = max(1, min(6, int(max_positions_ai) - short_count))
+                    if long_count >= cap:
+                        return False, (f"AI 设定的总仓数上限 {int(max_positions_ai)} 已达"
+                                       f"(多头 {long_count} + 空头 {short_count}), 不再开多"), {}
+                else:
+                    max_pos = min(6, max(1, int(equity * self.cfg.max_notional_mult /
+                                                (self.cfg.margin_per_trade_usd * lev))))
+                    if long_count >= max_pos:
+                        return False, f"多头仓数已达上限 {max_pos}(${equity:.0f}账户, 用户设定6)", {}
             else:
                 if short_count >= self.cfg.max_short_positions:
                     return False, f"空头仓数已达上限 {self.cfg.max_short_positions}(用户设定: 对冲用一两个)", {}

@@ -337,3 +337,28 @@ def test_replenish_margin_not_heavier():
             existing_pnl_pct=4.5, existing_entry=220.0)
         assert ok, reason
         assert params["margin"] <= 2.1, params["margin"]   # 加仓不重于首批(base 2$, 0.01股取整容差)
+
+
+def test_ai_max_positions_caps_total():
+    """2026-09-22 用户: 最多开几个仓也由 AI 决定 — max_positions=总仓数上限,
+    多头余量 = 上限 - 空头数。"""
+    import tempfile
+    from pathlib import Path
+    from supermarket.config import Config
+    from supermarket.risk import RiskEngine
+    cfg = Config()
+    with tempfile.TemporaryDirectory() as td:
+        eng = RiskEngine(cfg, Path(td))
+        eng.refresh_day(50.0)
+        acc = {"equity": 50.0, "notional": 60.0, "position_count": 2,
+               "long_count": 2, "short_count": 0}
+        # AI 上限=2, 已多2 → 拒第3个多
+        ok, reason, _ = eng.validate_open("NVDAUSDT", 220.0, "long", 213.0, 235.0,
+                                          CONTRACT, acc, 2, 0, max_positions_ai=2)
+        assert not ok and "上限" in reason
+        # AI 上限=4, 空1 → 多头余量 3; 已多2 → 允许再开
+        acc2 = {"equity": 50.0, "notional": 60.0, "position_count": 3,
+                "long_count": 2, "short_count": 1}
+        ok2, reason2, _ = eng.validate_open("NVDAUSDT", 220.0, "long", 213.0, 235.0,
+                                            CONTRACT, acc2, 2, 1, max_positions_ai=4)
+        assert ok2, reason2

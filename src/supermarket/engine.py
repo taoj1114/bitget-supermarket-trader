@@ -540,6 +540,9 @@ class SupermarketEngine:
         # 串行执行阶段(风控校验+开仓, 防并发超仓)
         for sym, quote, inp, decision in results:
             self.executor.set_quote(sym, quote)
+            if decision.max_positions:
+                self._ai_max_pos = max(1, min(6, int(decision.max_positions)))
+            ai_max_pos = self._ai_max_pos
             if decision.is_buy or decision.is_short:
                 side = "long" if decision.is_buy else "short"
                 # 加仓识别: 同标的同方向已有批次 → 加仓路径(不占新标的名额)
@@ -586,7 +589,8 @@ class SupermarketEngine:
                     existing_pnl_pct=existing_pnl_pct,
                     existing_entry=existing_entry,
                     leverage=decision.leverage,
-                    margin_usd=decision.margin_usd)
+                    margin_usd=decision.margin_usd,
+                    max_positions_ai=ai_max_pos)
                 if not ok:
                     self.memory.record_hold(sym, f"REJECT: {reason}", session)
                     log.warning("拒绝 %s: %s", sym, reason)

@@ -93,3 +93,11 @@ def test_parse_margin_usd_field():
     assert d2.margin_usd is None
     d3 = parse_open_decision('{"action":"BUY","leverage":10,"margin_usd":"2.5","stop_loss":100.0,"take_profit":115.0,"reason":"x"}')
     assert d3.margin_usd == 2.5
+
+
+def test_parse_max_positions_field():
+    """AI 决定最大仓数(2026-09-22): 解析 max_positions, 缺失为 None。"""
+    d = parse_open_decision('{"action":"BUY","leverage":12,"max_positions":4,"stop_loss":100.0,"take_profit":115.0,"reason":"x"}')
+    assert d.max_positions == 4
+    d2 = parse_open_decision('{"action":"HOLD","stop_loss":null,"take_profit":null,"reason":"x"}')
+    assert d2.max_positions is None

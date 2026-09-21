@@ -30,6 +30,7 @@ class OpenDecision:
     action: str = "HOLD"          # BUY / SELL / HOLD
     leverage: int | None = None   # AI 决定的风险密度(3~20x; 2026-09-19 用户要求)
     margin_usd: float | None = None  # AI 决定的仓位大小(每批保证金 0.5~5$; 2026-09-22 用户要求)
+    max_positions: int | None = None  # AI 决定的最大总仓数(1~6; 2026-09-22 用户澄清: 最多开几个仓)
     stop_loss: float | None = None
     take_profit: float | None = None
     reason: str = ""
@@ -103,10 +104,12 @@ def parse_open_decision(raw: str) -> OpenDecision:
                 rs = re.search(r'"reason"\s*:\s*"([^"]*)"', text)
                 lv = re.search(r'"leverage"\s*:\s*(\d+)', text)
                 mg = re.search(r'"margin_usd"\s*:\s*([\d.]+)', text)
+                mp = re.search(r'"max_positions"\s*:\s*(\d+)', text)
                 obj = {
                     "action": act.group(1) if act else "HOLD",
                     "leverage": int(lv.group(1)) if lv else None,
                     "margin_usd": float(mg.group(1)) if mg else None,
+                    "max_positions": int(mp.group(1)) if mp else None,
                     "stop_loss": float(sl.group(1)) if sl else None,
                     "take_profit": float(tp.group(1)) if tp else None,
                     "reason": rs.group(1) if rs else (text[:80] if text else ""),
@@ -125,6 +128,11 @@ def parse_open_decision(raw: str) -> OpenDecision:
     except (TypeError, ValueError):
         margin_usd = None
     try:
+        _mp = obj.get("max_positions")
+        max_positions = int(float(_mp)) if _mp not in (None, "") else None
+    except (TypeError, ValueError):
+        max_positions = None
+    try:
         sl = float(obj.get("stop_loss")) if obj.get("stop_loss") not in (None, "") else None
     except (TypeError, ValueError):
         sl = None
@@ -133,6 +141,7 @@ def parse_open_decision(raw: str) -> OpenDecision:
     except (TypeError, ValueError):
         tp = None
     return OpenDecision(action=action, leverage=leverage, margin_usd=margin_usd,
+                        max_positions=max_positions,
                         stop_loss=sl, take_profit=tp,
                         reason=str(obj.get("reason", "")), raw=text)
 
