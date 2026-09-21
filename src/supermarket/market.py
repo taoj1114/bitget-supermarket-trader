@@ -250,9 +250,24 @@ class MarketData:
             _mr = self.daily_regime("SPYUSDT")
             _reg = _mr[0] if _mr else "flat"
             _adx = _mr[1] if _mr else 0.0
+            # 实时行情层(用户2026-09-22"大盘要看实时"): SPY现价/24h/盘中价vs已收盘日线MA30;
+            # 方向仍以已收盘日线为权威(防盘中抖动, 9/15 SPCX误平教训)
+            bias_intraday = ""
+            try:
+                spyq_last = float(spyq.get("lastPr", 0) or 0)
+                _spy_done = klines_to_df(self.klines("SPYUSDT", "1D", 60))
+                if len(_spy_done) > 40:
+                    _sd = _spy_done.iloc[:-1]
+                    _ma30x = float(_sd["close"].tail(30).mean())
+                    if _ma30x > 0:
+                        bias_intraday = f" 盘中vs日线MA30 {(spyq_last/_ma30x-1)*100:+.1f}%"
+            except Exception:
+                pass
             market_env = (f"[{time.strftime('%m-%d %H:%M')} UTC] 大盘: "
-                          f"SPY {chg(spyq):+.2f}% 24h(已收日线{_reg} ADX{_adx:.0f}) | "
-                          f"QQQ {chg(qqqq):+.2f}% 24h")
+                          f"SPY ${float(spyq.get('lastPr', 0) or 0):.2f} {chg(spyq):+.2f}% 24h"
+                          f"{bias_intraday} | "
+                          f"QQQ ${float(qqqq.get('lastPr', 0) or 0):.2f} {chg(qqqq):+.2f}% 24h | "
+                          f"已收日线{_reg} ADX{_adx:.0f}(方向权威, 实时仅戒备/择时)")
         except Exception as e:
             log.debug("大盘环境获取失败: %s", str(e)[:60])
 

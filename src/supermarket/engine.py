@@ -456,6 +456,26 @@ class SupermarketEngine:
                 except Exception:
                     pass
                 return
+            intraday_drop = 0.0
+            try:
+                from supermarket.market import klines_to_df
+                _d = klines_to_df(self.bg.klines("SPYUSDT", "1D", 60))
+                if len(_d) > 40:
+                    _close_done = float(_d.iloc[-2]["close"])
+                    _last_spy = float(spyq.get("lastPr", 0) or 0)
+                    if _close_done > 0:
+                        intraday_drop = (_last_spy / _close_done - 1) * 100
+            except Exception:
+                pass
+            if intraday_drop <= self.cfg.spy_intraday_drop_gate_pct:
+                log.warning("天气门(盘中急跌): SPY 盘中 %.2f%% <= %.1f%%, 当日禁开新仓",
+                            intraday_drop, self.cfg.spy_intraday_drop_gate_pct)
+                try:
+                    from supermarket import notify
+                    notify.risk_event("天气门(盘中急跌): SPY 盘中 %+.2f%% -> 禁开新仓" % intraday_drop)
+                except Exception:
+                    pass
+                return
         except Exception:
             pass  # 拿不到 SPY 不阻塞(如网络抖动)
         # 市场情绪评分(用户提议 2026-09): 池内宽度 + VIX → 事实输入给 AI(不做程序决策)
