@@ -120,6 +120,19 @@ def main() -> None:
     if dep:
         lines.append(f"💰 外部注资合计 ${dep:.2f} → 账户权益 = 注资 + 基线 + 策略业绩")
 
+    # 3.6) 账目审计(v3 fills 唯一权威; 2026-09-21 重大账务修复后每日自动核账)
+    try:
+        from reconcile_fills import audit as audit_ledger
+        r = audit_ledger(bg, cfg, LIVE, days=14)
+        if r["ok"]:
+            lines.append(f"🔍 账目审计: 与交易所 fills 一致 ✓ ({r['n_closes']}笔已平 ${r['fill_total']:+.4f})")
+        else:
+            lines.append(f"🔍 账目审计: ⚠️ 差异 {len(r['diffs'])} 条 — fills ${r['fill_total']:+.4f} vs 账本 ${r['mem_total']:+.4f}")
+            for dd in r["diffs"][:3]:
+                lines.append(f"   · {dd['symbol']}: {dd['note']}")
+    except Exception as e:
+        lines.append(f"🔍 账目审计失败: {str(e)[:60]}  (不影响其他项目)")
+
     # 4) 熔断状态 + 告警
     br = load(LIVE / "breakers.json", {})
     lines.append(f"连亏 {br.get('consecutive_losses', 0)} 次 | 当日已实现 ${float(br.get('day_pnl', 0)):+.4f}")
