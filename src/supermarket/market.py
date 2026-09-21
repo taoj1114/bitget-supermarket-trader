@@ -89,6 +89,7 @@ class AIInput:
     ohlc_1h: str = ""
     ohlc_15m: str = ""           # 2026-09-19 用户追问: 短线周期数据(15m 30根=全交易日)
     ohlc_5m: str = ""
+    pos5d_pct: float = 50.0      # 最新收盘在近5日高低区间的相对位置%(2026-09-22 追高识别)
     orderbook: str = ""
     funding: str = ""
     news: str = ""
@@ -108,6 +109,22 @@ class AIInput:
     market_env: str = ""         # 大盘环境(SPY/QQQ, 只读参考)
     daily_levels: str = ""       # 日线关键位(20日高低/MA30, 结构止损参考)
     weekly_line: str = ""        # 周线季节视角(仅13根, 季度方向参考)
+
+
+def _pos5d(df: pd.DataFrame) -> float:
+    """最新收盘在近5日(已收盘)高低区间的相对位置%: 0=贴底, 100=贴顶。
+    2026-09-22(用户"买在最高点"): 注入 AI 用于追高识别。"""
+    try:
+        if df is None or len(df) < 6:
+            return 50.0
+        w = df.tail(5)
+        hi, lo = float(w["high"].max()), float(w["low"].min())
+        if hi <= lo:
+            return 50.0
+        c = float(w["close"].iloc[-1])
+        return max(0.0, min(100.0, (c - lo) / (hi - lo) * 100))
+    except Exception:
+        return 50.0
 
 
 def fmt_ohlc(df: pd.DataFrame, n: int = 60, ndigits: int = 1) -> str:
@@ -335,6 +352,7 @@ class MarketData:
             ind_1d_line=render_ind(ind1d, "日线(已收, 定方向!):"),
             trend=trend,
             ohlc_1d=fmt_ohlc(df1d_done, 60),   # 与 regime 同源(已收盘日线)
+            pos5d_pct=_pos5d(df1d_done),
             ohlc_4h=fmt_ohlc(df4h, 30),
             ohlc_1h=fmt_ohlc(df1h, 20),
             ohlc_15m=fmt_ohlc(df15m, 30),

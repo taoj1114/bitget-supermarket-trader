@@ -135,3 +135,22 @@ def test_review_adopted_prompt_fixes():
     assert "执行优先级" in SYSTEM_OPEN and "直接输出 HOLD" in SYSTEM_OPEN
     assert "距20日低+x%" in SYSTEM_OPEN, "缺做空四段式模板"
     assert "近 3 日未创新低" in SYSTEM_OPEN, "深跌反转缺量化企稳门槛"
+
+
+def test_market_refresh_failure_is_conservative():
+    """2026-09-22 修复: 大盘状态刷新失败 → 保守禁多(绝不静默放行)。
+    实测事故: 00:16 网络抖动 → SPY 刷新失败静默放行 → TSLA@375.36/SPCX@155.46
+    在大盘 trend_down 下被开多(买在5日区高位86%/70%)。"""
+    root = Path(__file__).resolve().parent.parent / "src" / "supermarket"
+    src = (root / "engine.py").read_text()
+    assert "保守禁多" in src, "刷新失败必须保守禁多"
+    assert "_market_down = True" in src, "失败分支必须置 True"
+
+
+def test_pos5d_chase_high_input():
+    """2026-09-22: 5日区间位置注入 AI(追高识别); prompts 有贴顶负面清单。"""
+    root = Path(__file__).resolve().parent.parent
+    mk = (root / "src" / "supermarket" / "market.py").read_text()
+    assert "pos5d_pct" in mk and "def _pos5d" in mk
+    pr = (root / "src" / "supermarket" / "prompts.py").read_text()
+    assert "5日区间位置" in pr and "贴顶" in pr and "追高" in pr

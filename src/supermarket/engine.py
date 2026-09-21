@@ -241,7 +241,15 @@ class SupermarketEngine:
                 else:
                     self._market_down_notified = False
         except Exception as e:
-            log.debug("大盘状态检测失败: %s", str(e)[:60])
+            # 2026-09-22 修复: 刷新失败 = 状态未知 → 保守禁多(绝不静默放行)。
+            # 此前失败只 debug 日志, _market_down 已被重置为 False → 门控静默失效,
+            # 实测 00:16 网络抖动期间在大盘 trend_down 下放行 TSLA@375.36/SPCX@155.46
+            # (分别买在5日区高位86%/70%)。现在: 拿不到大盘状态 = 按最坏假设(禁多)。
+            self._market_down = True
+            self._market_note = f"大盘未知(刷新失败 {str(e)[:40]}, 保守禁多)"
+            self._market_fail_count = getattr(self, "_market_fail_count", 0) + 1
+            log.warning("大盘状态刷新失败(%s) → 保守禁多(第%d次)", str(e)[:60],
+                        self._market_fail_count)
 
     def _ensure_protection(self) -> None:
         """保护自愈(实盘安全网): 裸仓补挂 TPSL + 策略单量不匹配时重挂覆盖全仓。
