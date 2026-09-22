@@ -102,7 +102,7 @@ def test_resilience_fixes():
     eng = (root / "engine.py").read_text()
     assert "holdings 自愈" in eng, "应自动清理陈旧 holdings"
     pr = (root / "prompts.py").read_text()
-    assert "盈亏比≥1.5" not in pr, "旧盈亏比残留应清除"
+    assert "盈亏比≥2.0, 中期目标" not in pr, "中期盈亏比残留应清除(短期=1.5)"
 
 
 def test_optimizations_v2():

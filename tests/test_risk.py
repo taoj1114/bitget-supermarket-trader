@@ -123,11 +123,11 @@ def test_rr_marginally_low_auto_fix():
     # RR 0.71 (SL 3.18%, TP 2.27%) → 直接拒
     ok2, reason2, _ = V(sl=213.0, tp=225.0)
     assert not ok2 and "盈亏比" in reason2
-    # RR 1.5 (SL 3.18%, TP 4.77%): sl=213.0, tp=230.5 → 自动修正到 RR=2.0
+    # RR 1.5 (SL 3.18%, TP 4.77%): sl=213.0, tp=230.5 → 短期目标 RR=1.5 即通过
     ok3, reason3, params3 = V(sl=213.0, tp=230.5)
     assert ok3, reason3
-    assert params3["rr"] == 2.0
-    assert abs(params3["tp_dist_pct"] - 6.36) < 0.25
+    assert params3["rr"] >= 1.5
+    assert abs(params3["tp_dist_pct"] - 4.77) < 0.25   # RR目标1.5: TP距离=3.18×1.5
 
 
 def test_notional_cap_ok():
@@ -214,18 +214,18 @@ def test_short_cap_not_block_long():
 
 # ---------- 宽止损通道(深跌票参考, 非开仓标准) ----------
 def test_wide_sl_allowed():
-    """止损上限15%(统一, 无特殊通道): 18%拒, 15%过。"""
+    """短期v3.0 止损上限5%(用户2026-09-22): 6%拒, 5%过。"""
     eng, acc = make_engine(equity=100.0)
-    # SL 18% 拒绝(>15%)
-    ok, reason, _ = eng.validate_open("XUSDT", 100.0, "long", 82.0, 160.0,
+    # SL 6% 拒绝(>5%)
+    ok, reason, _ = eng.validate_open("XUSDT", 100.0, "long", 94.0, 160.0,
                                       CONTRACT, acc, 0, 0)
     assert not ok and "过远" in reason
-    # 用户容忍度上限: 15% 止损默认可通过
-    ok, reason, params = eng.validate_open("XUSDT", 100.0, "long", 85.0, 160.0,
+    # 短期上限: 5% 止损默认可通过
+    ok, reason, params = eng.validate_open("XUSDT", 100.0, "long", 95.0, 160.0,
                                            CONTRACT, acc, 0, 0)
     assert ok, reason
-    assert params["sl_dist_pct"] == 15.0
-    assert params["rr"] >= 2.0
+    assert abs(params["sl_dist_pct"] - 5.0) < 0.01
+    assert params["rr"] >= 1.5
 
 
 # ---------- 日线方向门控(镜像) ----------

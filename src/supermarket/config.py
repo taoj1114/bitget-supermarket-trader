@@ -109,9 +109,10 @@ class Config:
     # 4H=中趋势(50天) 1D=方向权威(90=Bitget上限) 1W=季节视角(13=上限)
     kline_limits: dict[str, int] = field(
         default_factory=lambda: {"5m": 100, "1H": 240, "4H": 300, "1D": 90, "1W": 13})
-    sl_min_pct: float = 3.0    # 中期: 止损下限3%(给正常回调呼吸空间)
-    sl_max_pct: float = 15.0
-    min_rr: float = 2.0        # 中期靠盈亏比: 实证40-45%胜率+2:1=正期望
+    sl_min_pct: float = 1.5    # 短期v3.0(2026-09-22 用户): 止损下限1.5%
+    sl_max_pct: float = 5.0
+    min_rr: float = 1.5        # 短期: RR≥1.5(紧止损快兑现, 靠胜率)
+    time_stop_hours: float = 48.0  # 时间止损: 满48h未平 → 强平(防滞销)
     stop_repost_diff_pct: float = 0.2
     max_daily_drawdown_pct: float = 5.0    # 当日亏损≥净值5% → 停开新仓(原30%过宽)
     max_consecutive_losses: int = 3
@@ -172,9 +173,10 @@ class Config:
             spy_intraday_drop_gate_pct=float(g("spy_intraday_drop_gate_pct", -2.5)),
             min_turnover_floor=float(g("min_turnover_floor", 5_000_000.0)),
             kline_limits=dict(g("kline_limits") or {"5m": 100, "1H": 240, "4H": 300, "1D": 90, "1W": 13}),
-            sl_min_pct=float(g("sl_min_pct", 3.0)),
-            sl_max_pct=float(g("sl_max_pct", 15.0)),
-            min_rr=float(g("min_rr", 2.0)),
+            sl_min_pct=float(g("sl_min_pct", 1.5)),
+            sl_max_pct=float(g("sl_max_pct", 5.0)),
+            min_rr=float(g("min_rr", 1.5)),
+            time_stop_hours=float(g("time_stop_hours", 48.0)),
             stop_repost_diff_pct=float(g("stop_repost_diff_pct", 0.2)),
             max_daily_drawdown_pct=float(g("max_daily_drawdown_pct", 5.0)),
             max_consecutive_losses=int(g("max_consecutive_losses", 3)),

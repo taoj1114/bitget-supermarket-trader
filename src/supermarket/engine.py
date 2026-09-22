@@ -289,6 +289,31 @@ class SupermarketEngine:
         positions = self.executor.positions()
         if not positions:
             return
+        # 时间止损(短期v3.0, 用户2026-09-22 选短期): 开仓满 time_stop_hours 未平 → 程序直接兑现
+        # (不等 AI; 周末停机复市后计时继续, 跨周末不会无限拖)
+        try:
+            t_th = float(getattr(self.cfg, "time_stop_hours", 48.0)) * 3600
+            for p in list(positions):
+                opened = float(getattr(p, "opened_ts", 0) or 0)
+                if opened and (time.time() - opened) >= t_th:
+                    log.warning("时间止损: %s 已持有 %.1fh ≥ %.0fh → 强制兑现",
+                                p.symbol, (time.time()-opened)/3600, self.cfg.time_stop_hours)
+                    res = self.executor.close(p.symbol, reason="TIME_STOP")
+                    if res.get("ok"):
+                        pnl = float(res.get("pnl", 0))
+                        self.memory.close_decision(p.symbol, float(res.get("exit", 0)), pnl,
+                                                   "TIME_STOP", max_pnl_pct=0)
+                        self.risk.on_close(pnl)
+                        try:
+                            from supermarket import notify
+                            notify.trade_close(p.symbol, str(p.direction), pnl, "时间止损48h(短期策略)")
+                        except Exception:
+                            pass
+                    else:
+                        log.error("时间止损平仓失败 %s: %s", p.symbol, res.get("error"))
+            positions = self.executor.positions()   # 刷新(已强平的移除)
+        except Exception as e:
+            log.warning("时间止损检查异常: %s", str(e)[:60])
         lessons = self.memory.lessons
 
         def probe(pos) -> tuple | None:
