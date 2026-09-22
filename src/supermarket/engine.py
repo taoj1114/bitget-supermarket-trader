@@ -289,6 +289,18 @@ class SupermarketEngine:
         positions = self.executor.positions()
         if not positions:
             return
+        # 2026-09-22 改进(手动平仓自动感知): 管仓只操作交易所实际存在的持仓 ——
+        # 用户在交易所侧手动平仓后, 本仓立即退出管仓循环(不再HOLD/重挂TPSL),
+        # 对账(_reconcile, 每轮)随后自动补录真实盈亏; 查询失败→不过滤(避免误伤)。
+        try:
+            if self.executor.name == "real":
+                held = {r.get("symbol") for r in (self.bg.v3_positions() or [])}
+            else:
+                held = {p.symbol for p in self.executor.positions()}
+            if held:
+                positions = [p for p in positions if p.symbol in held]
+        except Exception as e:
+            log.debug("管仓持仓过滤失败(查询异常): %s", str(e)[:50])
         # 时间止损(短期v3.0, 用户2026-09-22 选短期): 开仓满 time_stop_hours 未平 → 程序直接兑现
         # (不等 AI; 周末停机复市后计时继续, 跨周末不会无限拖)
         try:

@@ -73,3 +73,10 @@ def test_momentum_guard_backstop():
     assert c.momentum_exit_floor == 1.5
     src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "engine.py").read_text()
     assert "MOMENTUM_GUARD" in src
+
+
+def test_manage_filters_exchange_held():
+    """2026-09-22 体检改进: 管仓只操作交易所实际持仓(手动平仓后不残留管仓)。"""
+    src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "engine.py").read_text()
+    assert "管仓持仓过滤" in src, "缺管仓持仓存在性过滤"
+    assert "positions = [p for p in positions if p.symbol in held]" in src
