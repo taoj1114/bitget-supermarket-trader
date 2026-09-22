@@ -96,8 +96,10 @@ class AIInput:
     account: dict[str, Any] = field(default_factory=dict)
     history: str = ""
     lessons: list[str] = field(default_factory=list)
-    daily_regime: str = "flat"   # 日线 regime(代码级方向门控用)
+    daily_regime: str = "flat"   # 日线 regime(背景/长期视野)
     daily_adx: float = 0.0
+    dir_regime: str = "flat"     # 方向权威=已收盘4H(2026-09-22用户: 日线对短期太慢)
+    dir_adx: float = 0.0
     deep_dip: str = ""           # 深跌反转信号(深跌40%+且企稳)或 ""
     rs20: float = 0.0            # 相对强度: 个股20日收益 - SPY20日收益(%)
     data_ok: bool = True         # 日线数据是否足够(不足则跳过决策, 不浪费AI调用/防误判)
@@ -207,8 +209,10 @@ class MarketData:
 
         ind5 = compute_indicators(df5, primary=True)
         ind1h = compute_indicators(df1h, primary=False)
-        ind4h = compute_indicators(df4h, primary=True)
-        ind1d = compute_indicators(df1d_done, primary=True)  # 日线方向权威=已收盘, 指标全量
+        # 短期方向权威 = 已收盘4H(用户2026-09-22: 日线太慢; 剔除进行中4H棒防边界抖动)
+        df4h_done = df4h.iloc[:-1] if len(df4h) > 12 else df4h
+        ind4h = compute_indicators(df4h_done, primary=True)
+        ind1d = compute_indicators(df1d_done, primary=True)  # 日线=背景, 指标全量(不主导短期)
 
         trend = trend_shape(df5)
         if not manage:
@@ -363,12 +367,12 @@ class MarketData:
             session=us_session(),
             ind_5m_line=render_ind(ind5, "5m(短线时机):"),
             ind_1h_line=render_ind(ind1h, "1H(趋势):"),
-            ind_4h_line=render_ind(ind4h, "4H(中趋势):"),
-            ind_1d_line=render_ind(ind1d, "日线(已收, 定方向!):"),
+            ind_4h_line=render_ind(ind4h, "4H(已收盘, 短期方向权威):"),
+            ind_1d_line=render_ind(ind1d, "日线(背景, 长期视野):"),
             trend=trend,
-            ohlc_1d=fmt_ohlc(df1d_done, 60),   # 与 regime 同源(已收盘日线)
+            ohlc_1d=fmt_ohlc(df1d_done, 20),   # 背景(长期视野, 不主导)
             pos5d_pct=_pos5d(df1d_done),
-            ohlc_4h=fmt_ohlc(df4h, 30),
+            ohlc_4h=fmt_ohlc(df4h_done, 20),  # 方向权威(已收盘)
             ohlc_1h=fmt_ohlc(df1h, 20),
             ohlc_15m=fmt_ohlc(df15m, 30),
             ohlc_5m=fmt_ohlc(df5, 20),
@@ -380,6 +384,8 @@ class MarketData:
             lessons=lessons,
             daily_regime=ind1d.regime,
             daily_adx=ind1d.adx,
+            dir_regime=ind4h.regime,
+            dir_adx=ind4h.adx,
             deep_dip=deep_dip,
             current_holding=current_holding,
             market_env=(market_env + (" | " + extra_env) if extra_env else market_env),

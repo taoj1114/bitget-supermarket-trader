@@ -26,9 +26,11 @@ SYSTEM_OPEN = """你是美国股票永续合约的"超市买手"交易员。策�
 - 第二优先级: 大盘非 trend_down 时, 才进入五道门逐条打分。
 
 铁律:
-1. **日线是方向权威**——多头只买日线趋势向上(或日线趋势衰竭后底部反转起步)的股票;
-   空头只在日线趋势向下(或日线趋势衰竭后顶部反转起步)时做空。日线明确向下(ADX≥25)绝不做多,
-   日线明确向上(ADX≥25)绝不做空。永不逆势。4H/1H/5m 只决定入场时机。
+1. **短期方向权威 = 已收盘4H(2026-09-22 用户: 日线对短期交易太慢, 最多看到4H)**——
+   多头只买 4H 趋势向上(ADX≥25 明确)的股票; 空头只在 4H 趋势向下时做空。
+   4H 明确向下(ADX≥25)绝不做多, 4H 明确向上绝不做空。永不逆势。
+   日线只作**长期背景**(上涨周期中的票优先); 1H/15m/5m 只定入场时机。
+   程序门控与 AI 判断**同源**(都用已收盘4H, 输入里"4H(已收盘, 短期方向权威)"即门控依据)。
 2. 全仓(crossed)保证金模式: 账户整体净值承担所有持仓亏损, 单仓不会单独爆仓。
    但总名义敞口受风控限制(约净值6倍), 持仓数有限, 仓位必须精挑细选。
 3. 每仓保证金约$2、杠杆20倍、名义约$40。这笔钱亏完不心疼, 但也别乱花。
@@ -132,10 +134,14 @@ SYSTEM_OPEN = """你是美国股票永续合约的"超市买手"交易员。策�
 - 止损同样给 3%~10% 呼吸空间(放关键高点上方+ATR缓冲), 对冲不是亏损豁免。
 
 **市场微观结构(2026-09-22 用户理念, 判断背景)**: 交易者是"人+量化系统"。
-人是情绪驱动的: 恐慌抛售会自我强化(跌得狠的继续跌), 贪婪追涨同理; 反转必须由**较高的买入
-(放量动能/新信心)**推动; 量化系统会**延续**已有情绪(趋势跟随) → 弱势默默阴跌、强势惯性延续。
-顺势交易吃的是这口惯性; 猜底/猜顶=逆着两股力量。判断时问自己: 有没有放量在推动?
-没有 → 默认趋势延续; 出现放量滞涨/乏力 → 反转将至。
+**下跌的自我强化**: 没人想买高价股、都想抄底 → **没有大规模买单时跌势一直持续**(只是幅度不同),
+连续阴线是常态; 跌势中的无量小反弹=诱多, 别当反转; 直到下个周期出现**大户放量承接**(底部=
+放量止跌/巨量长下影), 不是"跌不动"。
+**上涨的惯性**: 只要还有买家推进价格就继续涨, 个别K线波动(获利了结/做空盘)是正常噪音,
+趋势未坏就拿着别被单根吓跑; 直到**上涨无力/放量滞涨** → 大规模抛出 → 散户不敢买 → 都卖 →
+持续下跌(这就是顶部)。
+反转必须由**较高的买入(放量动能)**推动; 量化系统延续已有情绪(趋势跟随): 弱势默默阴跌、强势惯性延续。
+判断时问自己: 有**量**在推动吗? 有→趋势延续/反转确认; 无→默认延续原方向。
 
 **杠杆由你决定(3~20x; 2026-09-19 用户要求: 按行情调节风险预算)**:
 保证金固定 $2/笔, **杠杆决定名义敞口 = 每笔的风险大小**:
@@ -211,18 +217,15 @@ def build_open_prompt(inp: "AIInput") -> str:
         lines.insert(1, inp.daily_levels)
     if inp.funding:
         lines.append(f"资金费率: {inp.funding}")
-    lines.append(inp.ind_1d_line)   # 日线定方向, 放最前
+    lines.append(inp.ind_4h_line)   # 4H 已收盘 = 短期方向权威, 放最前(用户2026-09-22)
     if getattr(inp, "pos5d_pct", None) is not None:
         p5 = float(inp.pos5d_pct)
         tag = "贴顶(追高风险)" if p5 >= 75 else ("贴底" if p5 <= 25 else "中位")
         lines.append(f"5日区间位置: {p5:.0f}%({tag}; 最新收盘在近5日高低区间的相对位置)")
-    if inp.ohlc_1d:
-        lines.append(f"日线OHLC(已收盘, 近60根, 开/高/低/收, 最新在右): {inp.ohlc_1d}")
+    if inp.ohlc_4h:
+        lines.append(f"4H OHLC(近20根, 已收盘, 开/高/低/收): {inp.ohlc_4h}")
     if inp.weekly_line:
         lines.append(inp.weekly_line)
-    lines.append(inp.ind_4h_line)
-    if inp.ohlc_4h:
-        lines.append(f"4H OHLC(近30根, 开/高/低/收): {inp.ohlc_4h}")
     lines.append(inp.ind_1h_line)
     if inp.ohlc_1h:
         lines.append(f"1H OHLC(近20根, 开/高/低/收): {inp.ohlc_1h}")
@@ -231,6 +234,9 @@ def build_open_prompt(inp: "AIInput") -> str:
     lines.append(inp.ind_5m_line)
     if inp.ohlc_5m:
         lines.append(f"5m OHLC(近20根, 开/高/低/收, 仅入场时机): {inp.ohlc_5m}")
+    lines.append(inp.ind_1d_line)   # 日线=长期背景(不主导短期)
+    if inp.ohlc_1d:
+        lines.append(f"日线OHLC(近20根, 背景): {inp.ohlc_1d}")
     lines.append(f"走势形态: {inp.trend}")
     if inp.orderbook:
         lines.append(f"盘口: {inp.orderbook}")
@@ -383,7 +389,7 @@ def build_manage_prompt(inp: "AIInput", pos: dict[str, Any]) -> str:
         lines.append(inp.weekly_line)
     lines.append(inp.ind_4h_line)
     if inp.ohlc_4h:
-        lines.append(f"4H OHLC(近30根): {inp.ohlc_4h}")
+        lines.append(f"4H OHLC(近20根): {inp.ohlc_4h}")
     lines.append(inp.ind_1h_line)
     if inp.ohlc_1h:
         lines.append(f"1H OHLC(近20根): {inp.ohlc_1h}")

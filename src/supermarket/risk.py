@@ -88,8 +88,8 @@ class RiskEngine:
     # ---------- 开仓校验 ----------
     def validate_daily_direction(self, daily_regime: str, daily_adx: float,
                                  side: str = "long") -> tuple[bool, str]:
-        """日线方向门控(用户铁律: 永不逆势):
-        多头: 日线明确向下(ADX≥25)→ 禁做多; 空头: 日线明确向上(ADX≥25)→ 禁做空。"""
+        """方向门控(2026-09-22 起传已收盘4H=短期方向权威; 用户铁律: 永不逆势):
+        多头: 方向明确向下(ADX≥25)→ 禁做多; 空头: 方向明确向上(ADX≥25)→ 禁做空。"""
         if side == "long" and daily_regime == "trend_down" and daily_adx >= 25:
             return False, f"日线逆势: regime={daily_regime} ADX={daily_adx:.1f}≥25, 禁做多(永不逆势)"
         if side == "short" and daily_regime == "trend_up" and daily_adx >= 25:

@@ -603,8 +603,9 @@ class SupermarketEngine:
                         f"中段下跌禁区(距20日高{inp.pos20:.1f}% 且日线{inp.daily_regime}, 非企稳深跌反转), "
                         f"实证: 此类接刀 fwd5胜率仅16%")
                 else:
+                    # 短期方向门控(2026-09-22 用户: 日线太慢) = 已收盘4H; 日线仅作深跌禁区背景
                     ok_dir, dir_reason = self.risk.validate_daily_direction(
-                        inp.daily_regime, inp.daily_adx, side)
+                        inp.dir_regime, inp.dir_adx, side)
                 if not ok_dir:
                     self.memory.record_hold(sym, f"REJECT: {dir_reason}", session)
                     log.warning("拒绝 %s: %s", sym, dir_reason)

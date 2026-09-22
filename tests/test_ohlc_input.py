@@ -29,13 +29,16 @@ def test_ohlc_in_open_prompt_and_lean_indicators():
     q = bg.quote("TSLAUSDT")
     inp = m.build_input("TSLAUSDT", q, {"equity": 55.0})
     pr = build_open_prompt(inp)
-    assert "日线OHLC(已收盘, 近60根" in pr
-    assert "4H OHLC(近30根" in pr
+    assert "4H OHLC(近20根" in pr
     assert "1H OHLC(近20根" in pr
-    # 60+30+20 根数组都在
+    assert "15m OHLC(近30根" in pr
+    assert "5m OHLC(近20根" in pr
+    # 4H(权威)20根数组在场; 日线降为背景20根; 4H 排在日线之前
     import re
-    m1 = re.search(r"日线OHLC\(已收盘, 近60根[^)]*\): (.*)", pr)
-    assert m1 and len(m1.group(1).split(", ")) >= 55, "日线OHLC根数不足"
+    m1 = re.search(r"4H OHLC\(近20根[^)]*\): (.*)", pr)
+    assert m1 and len(m1.group(1).split(", ")) >= 18, "4H OHLC根数不足"
+    assert pr.find("4H OHLC") < pr.find("日线OHLC"), "4H(权威)应排在日线(背景)之前"
+    assert "4H(已收盘, 短期方向权威)" in pr
     # 指标行瘦身: 无量比/MACD/BB
     for ln in (inp.ind_1d_line, inp.ind_4h_line, inp.ind_1h_line, inp.ind_5m_line):
         assert "量比" not in ln and "MACD" not in ln and "BB" not in ln, ln[:80]

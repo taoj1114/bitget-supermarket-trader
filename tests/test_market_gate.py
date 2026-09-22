@@ -59,11 +59,13 @@ def test_aiinput_has_rs_and_pos_fields():
 
 
 def test_daily_direction_uses_closed_candles():
-    """日线方向必须基于已收盘K线(进行中的最后一根会致 regime 盘中抖动, 曾致误平仓)。"""
+    """短期方向权威=已收盘4H(2026-09-22 用户: 日线对短期太慢);
+    进行中的最后一根会致 regime 抖动(日线版曾致 SPCX 误平), 4H 同规则剔除。"""
     src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "market.py").read_text()
-    assert "df1d_done" in src, "build_input 应剔除进行中的日线"
-    assert "df.iloc[:-1]" in src, "daily_regime 应剔除进行中的日线"
-    assert "日线(已收, 定方向!)" in src, "渲染标签应标明已收盘"
+    assert "df4h_done" in src, "应剔除进行中的 4H 棒"
+    assert "dir_regime" in src and "dir_adx" in src, "方向权威字段(已收盘4H)缺失"
+    # 日线降为背景, 不再声明"定方向"
+    assert "日线(背景, 长期视野)" in src
 
 
 def test_trend_progress_fields():
