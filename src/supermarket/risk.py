@@ -213,6 +213,10 @@ class RiskEngine:
         if tp_eff is None:
             return False, "AI未提供止盈价, 拒绝开仓(超市要快进快出)", {}
         tp_dist = abs(tp_eff - price) / price * 100
+        # 短期 TP 上限(2026-09-23 用户: 新开仓止盈给太高) — >10% 直接拒绝(清出中期习惯)
+        if tp_dist > self.cfg.tp_max_pct:
+            return False, (f"止盈过高({tp_dist:.1f}% > 短期上限{self.cfg.tp_max_pct:.0f}%), "
+                           f"目标3~5%即可, 拒绝"), {}
         rr = tp_dist / sl_dist if sl_dist > 0 else 0
         if rr < self.cfg.min_rr:
             if rr >= 1.0:

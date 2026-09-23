@@ -69,7 +69,7 @@ def test_low_leverage_risk_budget_table():
     """风险预算表: 同一止损下, 杠杆越低单笔最大亏损越小(用户诉求的验证)。"""
     losses = {}
     for lev in (3, 8, 20):
-        ok, _, p = V(sl=213.0, tp=245.0, leverage=lev)
+        ok, _, p = V(sl=213.0, tp=233.0, leverage=lev)
         assert ok
         losses[lev] = p["notional"] * p["sl_dist_pct"] / 100
     assert losses[3] < losses[8] < losses[20]
@@ -214,18 +214,22 @@ def test_short_cap_not_block_long():
 
 # ---------- 宽止损通道(深跌票参考, 非开仓标准) ----------
 def test_wide_sl_allowed():
-    """短期v3.0 止损上限5%(用户2026-09-22): 6%拒, 5%过。"""
+    """短期v3.0 止损上限5%(用户2026-09-22): 6%拒, 5%过; TP上限10%(2026-09-23 用户: 止盈太高)。"""
     eng, acc = make_engine(equity=100.0)
     # SL 6% 拒绝(>5%)
-    ok, reason, _ = eng.validate_open("XUSDT", 100.0, "long", 94.0, 160.0,
+    ok, reason, _ = eng.validate_open("XUSDT", 100.0, "long", 94.0, 108.0,
                                       CONTRACT, acc, 0, 0)
     assert not ok and "过远" in reason
-    # 短期上限: 5% 止损默认可通过
-    ok, reason, params = eng.validate_open("XUSDT", 100.0, "long", 95.0, 160.0,
+    # 短期上限: 5% 止损默认可通过(RR 需 ≥1.5 → TP≥7.5%)
+    ok, reason, params = eng.validate_open("XUSDT", 100.0, "long", 95.0, 108.0,
                                            CONTRACT, acc, 0, 0)
     assert ok, reason
     assert abs(params["sl_dist_pct"] - 5.0) < 0.01
     assert params["rr"] >= 1.5
+    # TP 过高拒绝(>10%)
+    ok2, reason2, _ = eng.validate_open("XUSDT", 100.0, "long", 95.0, 120.0,
+                                        CONTRACT, acc, 0, 0)
+    assert not ok2 and "止盈过高" in reason2
 
 
 # ---------- 日线方向门控(镜像) ----------

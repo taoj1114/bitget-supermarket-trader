@@ -111,7 +111,8 @@ class Config:
         default_factory=lambda: {"5m": 100, "1H": 240, "4H": 300, "1D": 90, "1W": 13})
     sl_min_pct: float = 1.5    # 短期v3.0(2026-09-22 用户): 止损下限1.5%
     sl_max_pct: float = 5.0
-    min_rr: float = 1.5        # 短期: RR≥1.5(紧止损快兑现, 靠胜率)
+    min_rr: float = 1.5
+    tp_max_pct: float = 10.0        # 短期: RR≥1.5(紧止损快兑现, 靠胜率)
     time_stop_hours: float = 48.0  # 时间止损: 满48h未平 → 强平(防滞销)
     stop_repost_diff_pct: float = 0.2
     max_daily_drawdown_pct: float = 5.0    # 当日亏损≥净值5% → 停开新仓(原30%过宽)
@@ -176,6 +177,7 @@ class Config:
             sl_min_pct=float(g("sl_min_pct", 1.5)),
             sl_max_pct=float(g("sl_max_pct", 5.0)),
             min_rr=float(g("min_rr", 1.5)),
+            tp_max_pct=float(g("tp_max_pct", 10.0)),
             time_stop_hours=float(g("time_stop_hours", 48.0)),
             stop_repost_diff_pct=float(g("stop_repost_diff_pct", 0.2)),
             max_daily_drawdown_pct=float(g("max_daily_drawdown_pct", 5.0)),
