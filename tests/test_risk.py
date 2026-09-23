@@ -123,11 +123,11 @@ def test_rr_marginally_low_auto_fix():
     # RR 0.71 (SL 3.18%, TP 2.27%) → 直接拒
     ok2, reason2, _ = V(sl=213.0, tp=225.0)
     assert not ok2 and "盈亏比" in reason2
-    # RR 1.5 (SL 3.18%, TP 4.77%): sl=213.0, tp=230.5 → 短期目标 RR=1.5 即通过
+    # RR 1.5 (SL 3.18%, TP 4.77%) → 通过(≥1.2, v3.1 薄利)
     ok3, reason3, params3 = V(sl=213.0, tp=230.5)
     assert ok3, reason3
-    assert params3["rr"] >= 1.5
-    assert abs(params3["tp_dist_pct"] - 4.77) < 0.25   # RR目标1.5: TP距离=3.18×1.5
+    assert params3["rr"] >= 1.2
+    assert abs(params3["tp_dist_pct"] - 4.77) < 0.25
 
 
 def test_notional_cap_ok():
@@ -225,7 +225,7 @@ def test_wide_sl_allowed():
                                            CONTRACT, acc, 0, 0)
     assert ok, reason
     assert abs(params["sl_dist_pct"] - 5.0) < 0.01
-    assert params["rr"] >= 1.5
+    assert params["rr"] >= 1.2
     # TP 过高拒绝(>10%)
     ok2, reason2, _ = eng.validate_open("XUSDT", 100.0, "long", 95.0, 120.0,
                                         CONTRACT, acc, 0, 0)
