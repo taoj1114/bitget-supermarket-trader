@@ -167,3 +167,15 @@ def test_weather_gate_realtime_layers():
     assert "spy_intraday_drop_gate_pct: -2.5" in cfg, "盘中急跌阈值缺失"
     mk = (root / "src" / "supermarket" / "market.py").read_text()
     assert "盘中vs日线MA30" in mk, "market_env 缺实时盘中位置"
+
+
+def test_short_line_confluence_gate():
+    """2026-09-23 BEUSDT 教训(用户"顺势而为"): 1H 短线逆势禁开多(防"周线背景"式接刀);
+    顺势需要 4H 方向 + 短线共振。"""
+    root = Path(__file__).resolve().parent.parent
+    eng = (root / "src" / "supermarket" / "engine.py").read_text()
+    assert "1H短线逆势" in eng and "h1_regime" in eng, "缺 1H 逆势门控"
+    mk = (root / "src" / "supermarket" / "market.py").read_text()
+    assert "h1_regime" in mk, "AIInput 缺 h1_regime"
+    pr = (root / "src" / "supermarket" / "prompts.py").read_text()
+    assert "短线共振" in pr and "周线上升/日线背景/中长期上涨周期" in pr, "顺势需短线共振, 禁长期背景主理由"

@@ -614,6 +614,10 @@ class SupermarketEngine:
                     ok_dir, dir_reason = False, (
                         f"中段下跌禁区(距20日高{inp.pos20:.1f}% 且日线{inp.daily_regime}, 非企稳深跌反转), "
                         f"实证: 此类接刀 fwd5胜率仅16%")
+                elif side == "long" and getattr(inp, "h1_regime", "") == "trend_down":
+                    # 2026-09-23 BEUSDT教训(用户"顺势而为"): 4H刚过门槛但1H短线破位时开仓=接刀
+                    ok_dir, dir_reason = False, (
+                        f"1H短线逆势({inp.h1_regime}), 非顺势时点 —— 顺势要求短线配合, 等企稳")
                 else:
                     # 短期方向门控(2026-09-22 用户: 日线太慢) = 已收盘4H; 日线仅作深跌禁区背景
                     ok_dir, dir_reason = self.risk.validate_daily_direction(

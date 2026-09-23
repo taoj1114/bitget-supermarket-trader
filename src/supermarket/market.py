@@ -100,6 +100,7 @@ class AIInput:
     daily_adx: float = 0.0
     dir_regime: str = "flat"     # 方向权威=已收盘4H(2026-09-22用户: 日线对短期太慢)
     dir_adx: float = 0.0
+    h1_regime: str = ""          # 1H 短线趋势(顺势共振: 1H逆势不开仓; 2026-09-23 BEUSDT教训)
     deep_dip: str = ""           # 深跌反转信号(深跌40%+且企稳)或 ""
     rs20: float = 0.0            # 相对强度: 个股20日收益 - SPY20日收益(%)
     data_ok: bool = True         # 日线数据是否足够(不足则跳过决策, 不浪费AI调用/防误判)
@@ -386,6 +387,7 @@ class MarketData:
             daily_adx=ind1d.adx,
             dir_regime=ind4h.regime,
             dir_adx=ind4h.adx,
+            h1_regime=ind1h.regime,
             deep_dip=deep_dip,
             current_holding=current_holding,
             market_env=(market_env + (" | " + extra_env) if extra_env else market_env),
