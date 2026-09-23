@@ -19,7 +19,7 @@ def test_short_risk_params():
     c = Config.load()
     assert c.sl_min_pct == 1.5, "短期止损下限应为 1.5%"
     assert c.sl_max_pct == 5.0, "短期止损上限应为 5%"
-    assert c.min_rr == 1.2, "短期盈亏比应 ≥1.2(TP 2~3点薄利)"
+    assert c.min_rr == 1.0, "短期盈亏比应 ≥1.0(开仓挂1.5~2%止盈止损, 靠胜率)"
     assert c.time_stop_hours == 48.0, "时间止损应 48h"
 
 

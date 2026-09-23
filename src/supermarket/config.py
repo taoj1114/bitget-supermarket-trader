@@ -176,7 +176,7 @@ class Config:
             kline_limits=dict(g("kline_limits") or {"5m": 100, "1H": 240, "4H": 300, "1D": 90, "1W": 13}),
             sl_min_pct=float(g("sl_min_pct", 1.5)),
             sl_max_pct=float(g("sl_max_pct", 5.0)),
-            min_rr=float(g("min_rr", 1.2)),
+            min_rr=float(g("min_rr", 1.0)),
             tp_max_pct=float(g("tp_max_pct", 10.0)),
             time_stop_hours=float(g("time_stop_hours", 48.0)),
             stop_repost_diff_pct=float(g("stop_repost_diff_pct", 0.2)),
