@@ -67,6 +67,11 @@ class SupermarketEngine:
             self.executor = PaperExecutor(cfg, self.state_dir)
         self._ai_max_pos = None    # AI 决定的总仓数上限(1~6; 2026-09-22 用户)
         self._ai_max_mult = None   # AI 决定的总名义倍数(3~6x净值; 2026-09-22 用户"充分利用资金")
+        self._hot_pool_cache: list[str] = []   # 固定热门池(2026-09-23 用户)
+        self._hot_cache_ts = 0.0
+        self._hot_pool_vol: dict[str, float] = {}
+        self._cycle_cache: dict = {}
+        self._pool_dist: tuple = (0, 0, 0)
         self._contracts: dict[str, dict] = {}
         self._contracts_ts = 0.0
         self._scan_rotate = 0
@@ -421,11 +426,71 @@ class SupermarketEngine:
         return ""
 
     # ---------- 3. 扫描开仓 ----------
-    def _pick_candidates(self, account: dict) -> list[str]:
-        """候选构成: 持仓(补货/管理) + 热门前2 + 异动前3 + 轮转补齐(按成交额排序, 指针推进)。
+    def _hot_pool(self) -> list[str]:
+        """固定热门池(用户2026-09-23: 不要漫无目的全池筛选, 固定二三十个热门):
+        白名单(24) ∪ 成交额top补齐 = hot_pool_size; 可交易+数据充足; 缓存10分钟。"""
+        now = time.time()
+        if self._hot_cache_ts and now - self._hot_cache_ts < 600:
+            return self._hot_pool_cache
+        try:
+            tickers = self.market.tickers()
+        except Exception:
+            return self._hot_pool_cache
+        vol = {t["symbol"]: float(t.get("usdtVolume", 0) or 0) for t in tickers}
+        bad = getattr(self, "_data_bad", {})
+        valid = [s for s in vol if s in self._contracts and s not in bad
+                 and vol[s] >= self.cfg.min_turnover_floor]
+        pool = [s for s in self.cfg.hot_symbols if s in valid]
+        top = sorted((s for s in valid if s not in pool), key=lambda s: -(vol.get(s, 0) or 0))[
+            : max(0, self.cfg.hot_pool_size - len(pool))]
+        self._hot_pool_cache = (pool + top)[:self.cfg.hot_pool_size]
+        self._hot_pool_vol = vol
+        self._hot_cache_ts = now
+        return self._hot_pool_cache
 
-        2026-09 修复: 原流动性门槛$5M+hot前3导致候选枯竭(池211只实际只扫6只, 轮转永不推进)。
-        """
+    def _cycle_of(self, sym: str) -> str:
+        """周期桶(用户2026-09-23 分桶把握大方向): 已收盘4H regime → 上涨/下跌/震荡。10分钟缓存。"""
+        key = ("cyc", sym)
+        now = time.time()
+        c = self._cycle_cache.get(key)
+        if c and now - c[0] < 600:
+            return c[1]
+        try:
+            from supermarket.market import klines_to_df, compute_indicators
+            df = klines_to_df(self.bg.klines(sym, "4H", 30))
+            done = df.iloc[:-1] if len(df) > 12 else df
+            ind = compute_indicators(done, primary=True)
+            r = "上涨" if ind.regime == "trend_up" else ("下跌" if ind.regime == "trend_down" else "震荡")
+        except Exception:
+            r = "震荡"
+        if len(self._cycle_cache) > 300:
+            self._cycle_cache = {}
+        self._cycle_cache[key] = (now, r)
+        return r
+
+    def _pick_candidates(self, account: dict) -> list[str]:
+        """固定热门池 + 周期桶(用户2026-09-23): 持仓必进 + 上涨桶(顺势多主战场)优先
+        + 下跌桶(顺势空候选) + 震荡补齐; 不再全池漫游轮转。"""
+        held = [p.symbol for p in self.executor.positions()]
+        try:
+            pool = self._hot_pool()
+        except Exception as e:
+            log.error("热门池获取失败: %s", str(e)[:80])
+            pool = held[:]
+        vol = getattr(self, "_hot_pool_vol", {})
+        valid = [s for s in pool if s not in set(held)]
+        up: list[str] = []
+        down: list[str] = []
+        flat: list[str] = []
+        for s in valid:
+            c = self._cycle_of(s)
+            (up if c == "上涨" else down if c == "下跌" else flat).append(s)
+        order = lambda lst: sorted(lst, key=lambda s: -(vol.get(s, 0) or 0))
+        out = held[:6] + order(up)[:6] + order(down)[:5] + order(flat)[:4]
+        self._pool_dist = (len(up), len(down), len(flat))
+        log.info("热门池分布: 上涨%d/下跌%d/震荡%d(固定池%d只) → 候选%d",
+                 len(up), len(down), len(flat), len(pool), len(out))
+        return out[: self.cfg.max_symbols_per_round]
         held = [p.symbol for p in self.executor.positions()]
         try:
             tickers = self.market.tickers()
@@ -556,7 +621,11 @@ class SupermarketEngine:
                 inp = self.market.build_input(sym, quote, account,
                                               history=history, lessons=lessons,
                                               current_holding=self._holding_line(sym),
-                                              extra_env=getattr(self, "_sentiment_line", ""))
+                                              extra_env=" | ".join(x for x in (
+                                                  getattr(self, "_sentiment_line", ""),
+                                                  (f"热门池: 涨{self._pool_dist[0]}/跌{self._pool_dist[1]}/震荡{self._pool_dist[2]}"
+                                                   if getattr(self, "_pool_dist", None) else "")
+                                              ) if x))
                 if not getattr(inp, "data_ok", True):
                     self.memory.record_hold(sym, "REJECT: 日线数据不足(K线<35根), 无法决策", session)
                     log.debug("跳过 %s: 日线数据不足", sym)

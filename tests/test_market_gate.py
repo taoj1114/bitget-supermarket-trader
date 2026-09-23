@@ -179,3 +179,15 @@ def test_short_line_confluence_gate():
     assert "h1_regime" in mk, "AIInput 缺 h1_regime"
     pr = (root / "src" / "supermarket" / "prompts.py").read_text()
     assert "短线共振" in pr and "周线上升/日线背景/中长期上涨周期" in pr, "顺势需短线共振, 禁长期背景主理由"
+
+
+def test_hot_pool_cycle_buckets():
+    """2026-09-23 用户: 固定热门池 + 周期分桶(上涨/下跌/震荡)把握大方向。"""
+    root = Path(__file__).resolve().parent.parent
+    eng = (root / "src" / "supermarket" / "engine.py").read_text()
+    assert "_hot_pool" in eng and "_cycle_of" in eng and "hot_pool_size" in eng, "缺固定热门池/周期桶"
+    assert "热门池分布" in eng, "缺池分布统计"
+    pr = (root / "src" / "supermarket" / "prompts.py").read_text()
+    assert "周期桶" in pr and "顺着桶的势做" in pr, "缺分桶指导"
+    cfg = (root / "config.yaml").read_text()
+    assert "hot_pool_size: 25" in cfg

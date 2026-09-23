@@ -49,6 +49,7 @@ pause_after_loss_minutes: 120
 
 # ---- 标的池 ----
 symbol_pool: AUTO            # AUTO=美股全市场按流动性过滤; 或显式 [NVDAUSDT,...]
+hot_pool_size: 25            # 固定热门池(2026-09-23 用户: 不要漫无目的全池筛选): 白名单∪成交额top补齐
 hot_symbols: [NVDAUSDT, TSLAUSDT, AAPLUSDT, MSFTUSDT, AMZNUSDT, GOOGLUSDT,
               METAUSDT, PLTRUSDT, AMDUSDT, COINUSDT, MSTRUSDT, SMCIUSDT,
               AVGOUSDT, NFLXUSDT, SNDKUSDT, MUUSDT, INTCUSDT, ARMUSDT,

@@ -120,6 +120,7 @@ class Config:
     pause_after_loss_minutes: int = 120
     symbol_pool: str | list[str] = "AUTO"
     hot_symbols: list[str] = field(default_factory=list)
+    hot_pool_size: int = 25      # 固定热门池规模(用户2026-09-23: 二三十个热门)
     llm: LLMCfg = field(default_factory=LLMCfg)
     scan_workers: int = 4
     bitget: BitgetCfg = field(default_factory=BitgetCfg)
@@ -185,6 +186,7 @@ class Config:
             pause_after_loss_minutes=int(g("pause_after_loss_minutes", 120)),
             symbol_pool=g("symbol_pool", "AUTO"),
             hot_symbols=list(g("hot_symbols", []) or []),
+            hot_pool_size=int(g("hot_pool_size", 25)),
             llm=LLMCfg(
                 base_url=str(llm_raw.get("base_url", "")),
                 api_key=str(llm_raw.get("api_key", "")),
