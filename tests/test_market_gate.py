@@ -178,7 +178,9 @@ def test_short_line_confluence_gate():
     mk = (root / "src" / "supermarket" / "market.py").read_text()
     assert "h1_regime" in mk, "AIInput 缺 h1_regime"
     pr = (root / "src" / "supermarket" / "prompts.py").read_text()
-    assert "短线共振" in pr and "周线上升/日线背景/中长期上涨周期" in pr, "顺势需短线共振, 禁长期背景主理由"
+    assert "只做顺势" in pr and "不要再做回踩" in pr, "顺势唯一, 回踩废弃"
+    assert "程序会拦截" in pr, "1H/15m 短线逆势程序拦截"
+    assert "周线/日线背景/中长期上涨周期" in pr, "禁长期背景主理由"
 
 
 def test_hot_pool_cycle_buckets():
