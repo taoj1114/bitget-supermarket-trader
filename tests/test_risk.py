@@ -202,13 +202,13 @@ def test_short_tp_above_price():
 
 
 def test_short_position_cap():
-    ok, reason, _ = V(side="short", sl=228.0, tp=214.0, shorts=2)  # 上限2
+    ok, reason, _ = V(side="short", sl=228.0, tp=214.0, shorts=3)  # 上限3(用户2026-09-23提高)
     assert not ok and "空头仓数" in reason
 
 
 def test_short_cap_not_block_long():
     # 空仓占满不影响多头
-    ok, reason, _ = V(side="long", shorts=2)
+    ok, reason, _ = V(side="long", shorts=3)
     assert ok
 
 

@@ -99,7 +99,7 @@ class Config:
     margin_mode: str = "crossed"
     max_notional_mult: float = 6.0
     max_positions_divisor: int = 10  # 保留(兼容); 实际仓数由 risk.py 按 净值×6÷每仓 推导
-    max_short_positions: int = 2
+    max_short_positions: int = 3
     max_batches_per_symbol: int = 3   # 分批建仓上限(超市补货: $2×3=6保证金/标的)
     market_down_adx: float = 25.0     # 大盘趋势门控: SPY日线ADX≥此值且趋势向下 → 禁开多仓
     spy_drop_gate_pct: float = -3.0
@@ -169,7 +169,7 @@ class Config:
             margin_mode=str(g("margin_mode", "crossed")).lower(),
             max_notional_mult=float(g("max_notional_mult", 6.0)),
             max_positions_divisor=int(g("max_positions_divisor", 10)),
-            max_short_positions=int(g("max_short_positions", 2)),
+            max_short_positions=int(g("max_short_positions", 3)),
             max_batches_per_symbol=int(g("max_batches_per_symbol", 3)),
             spy_drop_gate_pct=float(g("spy_drop_gate_pct", -3.0)),
             spy_intraday_drop_gate_pct=float(g("spy_intraday_drop_gate_pct", -2.5)),
