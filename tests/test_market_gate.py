@@ -193,3 +193,13 @@ def test_hot_pool_cycle_buckets():
     assert "周期桶" in pr and "顺着桶的势做" in pr, "缺分桶指导"
     cfg = (root / "config.yaml").read_text()
     assert "hot_pool_size: 25" in cfg
+
+
+def test_short_operation_cycle_1h_15m():
+    """2026-09-23 用户: 短期要多看 1H/15m —— 操作周期=1H/15m, 动量信号改用1H(已收盘), 不再用日线。"""
+    root = Path(__file__).resolve().parent.parent
+    mk = (root / "src" / "supermarket" / "market.py").read_text()
+    assert "_mdf = df1h.iloc[:-1]" in mk, "动量应基于已收盘1H"
+    pr = (root / "src" / "supermarket" / "prompts.py").read_text()
+    assert "操作周期" in pr and "1H/15m" in pr, "操作主周期=1H/15m 应写入提示词"
+    assert "动量/RSI/结构在这些级别上判断" in pr

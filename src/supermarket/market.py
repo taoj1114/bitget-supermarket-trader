@@ -314,8 +314,10 @@ class MarketData:
                     else:
                         days_since_high = 20
                 # 动量状态(2026-09 实证 481475 样本): 乏力 → 浮盈回吐概率 66% vs 推进中 40%
-                hs = [float(x) for x in df1d_done["high"].tolist()]
-                cs2 = [float(x) for x in df1d_done["close"].tolist()]
+                # 2026-09-23(用户: 短期多看看1H/15m): 动量改用 1H(已收盘, 操作节拍); 不再用日线
+                _mdf = df1h.iloc[:-1] if len(df1h) > 8 else df1h
+                hs = [float(x) for x in _mdf["high"].tolist()]
+                cs2 = [float(x) for x in _mdf["close"].tolist()]
                 if len(cs2) >= 6:
                     hi3, hi6 = max(hs[-3:]), max(hs[-6:-3])
                     ma5d = sum(cs2[-5:]) / 5
