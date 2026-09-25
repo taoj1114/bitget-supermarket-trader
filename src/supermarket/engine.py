@@ -328,6 +328,16 @@ class SupermarketEngine:
                     pnl_pct = (last - entry) / entry * 100 if entry else 0.0
                 inp = self.market.build_input(sym, quote, account,
                                               lessons=lessons, manage=True)
+                # 反转失效就跑(2026-09-25 用户定稿: "出现不同的情况就跑")
+                # 持仓方向的反转信号已反向 = 反转逻辑失效 → 程序直接离场, 不给 AI 犹豫空间
+                _rev = getattr(inp, "reversal_dir", "")
+                if (pos.direction == "long" and _rev == "top") or \
+                   (pos.direction == "short" and _rev == "bottom"):
+                    log.warning("⚡ 反转失效兜底: %s %s + 反向反转信号(%s) → 程序直接离场",
+                                sym, pos.direction, _rev)
+                    return (pos, quote, ManageDecision(
+                        action="CLOSE",
+                        reason=f"程序兜底: 反转失效(出现反向反转信号 {_rev}) → 立刻离场(用户: 情况不对就跑)"))
                 # 程序兜底(2026-09-18 用户批准): 动量"乏力" + 浮盈≥阈值 → 直接兑现, 不给 AI 犹豫空间
                 # 实证: 乏力状态浮盈回吐成亏损概率 66.2%(推进中仅 40.1%)
                 # 案例: NET 浮盈+2.98% 时动量已转乏力, AI 犹豫 → 回撤至止损 -$0.30
@@ -651,16 +661,22 @@ class SupermarketEngine:
                 # 方向门控(2026-09-25 用户: 短期不看日线/大盘日线/位置, 只看价格与1H/15m)
                 # 唯一放行逻辑: 1H(已收盘)方向明确 —— 顺势做多/顺势做空; 深跌反转例外(程序内部判)
                 # 历史残留已清: 大盘日线禁多(_market_down)/日线中段下跌禁区(pos20)/1H双重拦截
-                if side == "long" and inp.deep_dip:
-                    ok_dir, dir_reason = True, f"深跌反转信号例外放行({inp.deep_dip})"
-                elif side == "long" and getattr(inp, "reversal_dir", "") == "bottom":
-                    # 2026-09-25 用户: 反转后顺势 —— 底部反转确认时, 1H 往往还没转, 必须放行
-                    ok_dir, dir_reason = True, "底部反转后顺势做多放行(反转确认, 不等1H转向)"
-                elif side == "short" and getattr(inp, "reversal_dir", "") == "top":
-                    ok_dir, dir_reason = True, "顶部反转后顺势做空放行(反转确认)"
+                # 2026-09-25 用户定稿: **反转后顺势 = 主要运行方式** —— 没有反转信号就不开仓
+                # (程序硬门控, 不接受"追趋势中段"; 反转确认时 1H 往往还没转向, 故不走1H方向门控)
+                _rev = getattr(inp, "reversal_dir", "")
+                if _rev == "bottom" and side == "long":
+                    ok_dir, dir_reason = True, "底部反转后顺势做多(反转确认)"
+                elif _rev == "top" and side == "short":
+                    ok_dir, dir_reason = True, "顶部反转后顺势做空(反转确认)"
+                elif inp.deep_dip and side == "long":
+                    ok_dir, dir_reason = True, f"深跌反转企稳例外({inp.deep_dip})"
+                elif _rev:
+                    ok_dir, dir_reason = False, (
+                        f"反转信号与开仓方向不符({_rev} vs {side}) —— 只做反转后顺势")
                 else:
-                    ok_dir, dir_reason = self.risk.validate_daily_direction(
-                        inp.dir_regime, inp.dir_adx, side)
+                    ok_dir, dir_reason = False, (
+                        "无反转信号(价格未出现反转确认形态) —— 用户定稿: 只做反转后顺势, "
+                        "无信号即等待, 不追趋势中段")
                 if not ok_dir:
                     self.memory.record_hold(sym, f"REJECT: {dir_reason}", session)
                     log.warning("拒绝 %s: %s", sym, dir_reason)

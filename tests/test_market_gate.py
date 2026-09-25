@@ -38,8 +38,8 @@ def test_market_down_flag_wiring():
     eng = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "engine.py").read_text()
     assert "inp.pos20, 0.0) <= -10" not in eng, "日线中段禁区应已移除(用户: 短期不需要日线)"
     assert 'and getattr(self, "_market_down", False):' not in eng, "大盘日线禁多门控分支应已移除"
-    assert "方向门控(2026-09-25" in eng, "方向门控应只剩 1H/深跌例外"
-    assert "validate_daily_direction" in eng, "1H 方向门控必须仍是唯一入口"
+    assert "无反转信号(价格未出现反转确认形态)" in eng, "无反转信号应硬门控拒开(用户定稿: 只做反转后顺势)"
+    assert 'getattr(inp, "reversal_dir", "")' in eng, "开仓门控应基于反转信号"
 
 
 def test_daily_regime_method_exists():
