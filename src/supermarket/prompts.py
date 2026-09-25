@@ -25,6 +25,19 @@ SYSTEM_OPEN = """你是美国股票永续合约的"超市买手"交易员。策�
 - 第二优先级: 价格行为健康(顺势方向内), 再看位置/动量/周期桶, 决定进不进、进多少。
 - **指标行已从输入移除**: 若你"觉得"某个 RSI/MACD 数值该是多少, 那是幻觉 —— 禁止引用指标数值。
 
+**多周期分工(2026-09-25 用户: 4H是背景, 1H更精确, 15m要多看)**: 
+- **4H = 背景(不可对着干)**: 看"连续变化"(近8根高低点是否逐级抬高/走低)。4H 已出现较大连续变化
+  → **不要与它反着来**(4H 连续下行不做多, 4H 连续上行不做空); 注意是"**连续的变化**"而不是
+  "突然的波动"(单根大K线不构成方向反转, 要看高/低点是否持续位移);
+- **1H = 操作主周期**(更精确地反应价格变化): 入场/离场/结构判断以 1H 价格结构为准;
+- **15m = 入场时机**: 看 **48 根(≈12小时)** 的价格变化走势, 3 根是不够的 —— 要看到走势本身;
+- 每根K线都给 开/高/低/收 四个价格, 你的判断基于这些价格怎么变, 不是任何指标。
+
+**做空与多头完全对称(2026-09-25 用户: 可以做空的就去做空, 哪有一直涨的股票)**:
+- 1H 连续下行 + 反抽无力/关键位破位 → **顺势做空**(空单上限3), 不必等"完美信号";
+- 下跌桶里的票就是空单弹药; 不要只盯多头 —— 一涨到底的股票不存在, 顺势空 = 陪着下跌趋势,
+  等它跌完再考虑转多(那才是抄底时机)。
+
 **操作周期(2026-09-23 用户: 短期要多看15m和1H K线)**: 4H 定大方向骨架;
 **1H/15m 才是短期操作的主周期** —— 入场点、离场点、持仓管理都按 1H/15m 执行
 (动量/结构在这些级别上判断), 5m 只做最后微调; 别守着 4H 定买卖点。
@@ -240,15 +253,18 @@ def build_open_prompt(inp: "AIInput") -> str:
         p5 = float(inp.pos5d_pct)
         tag = "贴顶(顺势高位=动能, 2026-09-24: 位置不作开仓拒绝依据)" if p5 >= 75 else ("贴底" if p5 <= 25 else "中位")
         lines.append(f"5日区间位置: {p5:.0f}%({tag}; 最新收盘在近5日高低区间的相对位置)")
+    if getattr(inp, "struct_4h", ""):
+        lines.append(inp.struct_4h)
     if inp.ohlc_4h:
-        lines.append(f"4H OHLC(近20根, 已收盘, 开/高/低/收): {inp.ohlc_4h}")
-    # 2026-09-24 用户: 短期不需要周线/长周期背景 → 不渲染
-    if inp.ind_1h_line:
-        lines.append(inp.ind_1h_line)
+        lines.append(f"4H OHLC(近24根, 已收盘, 开/高/低/收): {inp.ohlc_4h}")
+    if getattr(inp, "struct_1h", ""):
+        lines.append(inp.struct_1h)
     if inp.ohlc_1h:
-        lines.append(f"1H OHLC(近20根, 开/高/低/收): {inp.ohlc_1h}")
+        lines.append(f"1H OHLC(近24根, 开/高/低/收): {inp.ohlc_1h}")
+    if getattr(inp, "struct_15m", ""):
+        lines.append(inp.struct_15m)
     if inp.ohlc_15m:
-        lines.append(f"15m OHLC(近30根, 开/高/低/收, 仅入场时机): {inp.ohlc_15m}")
+        lines.append(f"15m OHLC(近48根≈12小时, 开/高/低/收, 入场时机): {inp.ohlc_15m}")
     if inp.ind_5m_line:
         lines.append(inp.ind_5m_line)
     if inp.ohlc_5m:
@@ -413,12 +429,16 @@ def build_manage_prompt(inp: "AIInput", pos: dict[str, Any]) -> str:
     # 2026-09-24 用户: 短期不需要周线/长周期背景 → 不渲染
     if inp.ind_4h_line:
         lines.append(inp.ind_4h_line)
+    if getattr(inp, "struct_4h", ""):
+        lines.append(inp.struct_4h)
     if inp.ohlc_4h:
-        lines.append(f"4H OHLC(近20根): {inp.ohlc_4h}")
+        lines.append(f"4H OHLC(近24根): {inp.ohlc_4h}")
     if inp.ind_1h_line:
         lines.append(inp.ind_1h_line)
+    if getattr(inp, "struct_1h", ""):
+        lines.append(inp.struct_1h)
     if inp.ohlc_1h:
-        lines.append(f"1H OHLC(近20根): {inp.ohlc_1h}")
+        lines.append(f"1H OHLC(近24根): {inp.ohlc_1h}")
     if inp.ohlc_15m:
         lines.append(f"15m OHLC(近30根, 仅入场时机): {inp.ohlc_15m}")
     if inp.ind_5m_line:

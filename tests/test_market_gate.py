@@ -75,7 +75,8 @@ def test_trend_progress_fields():
     f = AIInput.__dataclass_fields__
     assert "new_high_5d" in f and "days_since_high" in f
     src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "market.py").read_text()
-    assert "近5日创新高" in src
+    # 2026-09-25 用户: 日线位不渲染; new_high_5d 仍作为程序内部字段保留
+    assert "new_high_5d" in src and "日线位(20日)" not in src, "日线位应停止渲染"
     p = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "prompts.py").read_text()
     assert "趋势仍在推进" in p
 

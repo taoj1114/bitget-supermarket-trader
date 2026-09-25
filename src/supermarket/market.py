@@ -111,8 +111,36 @@ class AIInput:
     pos20: float = 0.0           # 距20日最高(%)
     current_holding: str = ""    # 已持仓信息(加仓决策用)
     market_env: str = ""         # 大盘环境(SPY/QQQ, 只读参考)
-    daily_levels: str = ""       # 日线关键位(20日高低/MA30, 结构止损参考)
+    daily_levels: str = ""       # (2026-09-25 用户: 短期不需要日线位 → 停用)
+    struct_4h: str = ""          # 4H 价格结构(连续变化方向; 背景, 不可反着来)
+    struct_1h: str = ""          # 1H 价格结构(操作主周期)
+    struct_15m: str = ""         # 15m 价格结构(入场时机)
     weekly_line: str = ""        # 周线季节视角(仅13根, 季度方向参考)
+
+
+def _seq_trend(df: pd.DataFrame, n: int = 8) -> tuple[str, float]:
+    """价格连续变化方向(2026-09-25 用户: 看价格的连续变化, 不是突然的波动)。
+
+    以最近 n 根(已收盘)K线的 高点/低点 逐级抬高/降低的比例判定:
+    ≥70% = 连续上行, ≤30% = 连续下行, 中间 = 震荡。
+    这是纯价格结构的"势", 不依赖任何指标。
+    """
+    try:
+        d = df.iloc[:-1] if len(df) > n + 2 else df
+        h = [float(x) for x in d["high"].tolist()][-n:]
+        l = [float(x) for x in d["low"].tolist()][-n:]
+        if len(h) < 4:
+            return ("未知", 0.5)
+        ups = sum(1 for i in range(1, len(h)) if h[i] >= h[i - 1]) + \
+              sum(1 for i in range(1, len(l)) if l[i] >= l[i - 1])
+        r = ups / max(1, 2 * (len(h) - 1))
+        if r >= 0.7:
+            return ("连续上行", r)
+        if r <= 0.3:
+            return ("连续下行", r)
+        return ("震荡", r)
+    except Exception:
+        return ("未知", 0.5)
 
 
 def _pos5d(df: pd.DataFrame) -> float:
@@ -339,11 +367,9 @@ class MarketData:
                 elif not new_high_5d:
                     tag = (" ⚠️近5日无新高=趋势未推进(实证: 此类回调超额收益仅+0.1% vs "
                            "创新高者+0.45%; 除非有放量确认, 否则等创新高再进货)")
-                daily_levels = (f"日线位(20日): 高{dhi:.2f} 低{dlo:.2f} "
-                                f"MA30 {ma30:.2f}(偏离{dev:+.1f}%) 跌破{min(dlo, ma30):.2f}=结构破坏 | "
-                                f"距20日高{pos20:+.1f}% | RS(vsSPY20日){rs20:+.1f}% | "
-                                f"近5日创新高:{'是' if new_high_5d else f'否(距上次新高{days_since_high}天)'} | "
-                                f"动量(近3日口径):{momentum_state}{tag}")
+                # 2026-09-25 用户: 日线位/MA30/RS 不再进 AI 输入(短期不需要, 影响决策);
+                # 只留动量(价格行为)。深跌/RS标签仅在程序内部保留判断用。
+                daily_levels = ""
         except Exception as e:
             log.debug("日线关键位计算失败: %s", str(e)[:60])
 
@@ -374,11 +400,17 @@ class MarketData:
             # AI 只看 OHLC 原始数组(程序门控内部仍用 dir_regime/dir_adx, 不给AI看)
             ind_5m_line="", ind_4h_line="", ind_1h_line="", ind_1d_line="",
             trend=trend,
-            ohlc_1d=fmt_ohlc(df1d_done, 20),   # 背景(长期视野, 不主导)
+            ohlc_1d="",                        # 2026-09-25 用户: 短期不需要日线 → 不渲染
+            struct_4h=(lambda r: f"4H价格结构(背景, 连续变化不可反着来): {r[0]}"
+                       f"(近8根高低点{('逐级抬高' if r[0]=='连续上行' else '逐级走低' if r[0]=='连续下行' else '交错')})")(_seq_trend(df4h, 8)),
+            struct_1h=(lambda r: f"1H价格结构(操作主周期): {r[0]}"
+                       f"(近8根高低点{('逐级抬高' if r[0]=='连续上行' else '逐级走低' if r[0]=='连续下行' else '交错')})")(_seq_trend(df1h, 8)),
+            struct_15m=(lambda r: f"15m价格结构(入场时机): {r[0]}"
+                        f"(近12根高低点{('逐级抬高' if r[0]=='连续上行' else '逐级走低' if r[0]=='连续下行' else '交错')})")(_seq_trend(df15m, 12)),
             pos5d_pct=_pos5d(df1d_done),
-            ohlc_4h=fmt_ohlc(df4h_done, 20),  # 方向权威(已收盘)
-            ohlc_1h=fmt_ohlc(df1h, 20),
-            ohlc_15m=fmt_ohlc(df15m, 30),
+            ohlc_4h=fmt_ohlc(df4h_done, 24),  # 方向权威(已收盘)
+            ohlc_1h=fmt_ohlc(df1h, 24),
+            ohlc_15m=fmt_ohlc(df15m, 48),  # 2026-09-25 用户: 15m 看更多价格变化(12小时)
             ohlc_5m=fmt_ohlc(df5, 20),
             orderbook=orderbook,
             funding=funding,
