@@ -33,10 +33,13 @@ def test_market_gate_blocks_long_only(tmp_path):
 
 
 def test_market_down_flag_wiring():
-    """engine 里应存在大盘门控标记与 SPY 日线检测(防误删)。"""
-    src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "engine.py").read_text()
-    assert "_market_down" in src and "daily_regime" in src
-    assert "大盘日线向下" in src
+    """2026-09-25 用户: 大盘日线门控/日线中段禁区/1H双重拦截 全部移除(趋势只看1H价格结构)。
+    此测试防"旧门控复活"——若它们再出现, 说明有人把短期逻辑改回日线。"""
+    eng = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "engine.py").read_text()
+    assert "inp.pos20, 0.0) <= -10" not in eng, "日线中段禁区应已移除(用户: 短期不需要日线)"
+    assert 'and getattr(self, "_market_down", False):' not in eng, "大盘日线禁多门控分支应已移除"
+    assert "方向门控(2026-09-25" in eng, "方向门控应只剩 1H/深跌例外"
+    assert "validate_daily_direction" in eng, "1H 方向门控必须仍是唯一入口"
 
 
 def test_daily_regime_method_exists():
@@ -170,18 +173,17 @@ def test_weather_gate_realtime_layers():
 
 
 def test_short_line_confluence_gate():
-    """2026-09-23 BEUSDT 教训(用户"顺势而为"): 1H 短线逆势禁开多(防"周线背景"式接刀);
-    顺势需要 4H 方向 + 短线共振。"""
+    """2026-09-25: 方向权威已是1H, 原"1H短线逆势双重拦截"移除(避免自相矛盾)。
+    保留确认: 1H=方向权威字段来源; 位置类信息不作开仓拒绝依据。"""
     root = Path(__file__).resolve().parent.parent
     eng = (root / "src" / "supermarket" / "engine.py").read_text()
-    assert "1H短线逆势" in eng and "h1_regime" in eng, "缺 1H 逆势门控"
     mk = (root / "src" / "supermarket" / "market.py").read_text()
-    assert "h1_regime" in mk, "AIInput 缺 h1_regime"
     pr = (root / "src" / "supermarket" / "prompts.py").read_text()
-    assert "只做顺势" in pr and "不要再做回踩" in pr, "顺势唯一, 回踩废弃"
-    assert "程序会拦截" in pr, "1H/15m 短线逆势程序拦截"
-    assert "周线/日线背景/中长期上涨周期" in pr, "禁长期背景主理由"
-
+    assert "1H短线逆势" not in eng, "1H 双重拦截应已移除(方向权威本身就是1H)"
+    assert "dir_regime=ind1h.regime" in mk, "1H(已收盘) 应为方向权威"
+    assert "位置信息(距20日高/5日区间/乖离)不作开仓拒绝依据" in pr
+    assert "只做顺势" in pr and "不要再做回踩" in pr
+    assert "周线/日线背景/中长期上涨周期" in pr
 
 def test_hot_pool_cycle_buckets():
     """2026-09-23 用户: 固定热门池 + 周期分桶(上涨/下跌/震荡)把握大方向。"""

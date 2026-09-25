@@ -648,26 +648,12 @@ class SupermarketEngine:
                         existing_entry = existing.avg_entry
                     except Exception:
                         pass
-                # 日线方向门控(代码即法律): 日线逆势禁做多/禁做空
-                # 例外: 深跌40%+且企稳的热门票允许 BUY(用户场景 2026-09, 低风险尝试)
+                # 方向门控(2026-09-25 用户: 短期不看日线/大盘日线/位置, 只看价格与1H/15m)
+                # 唯一放行逻辑: 1H(已收盘)方向明确 —— 顺势做多/顺势做空; 深跌反转例外(程序内部判)
+                # 历史残留已清: 大盘日线禁多(_market_down)/日线中段下跌禁区(pos20)/1H双重拦截
                 if side == "long" and inp.deep_dip:
                     ok_dir, dir_reason = True, f"深跌反转信号例外放行({inp.deep_dip})"
-                elif side == "long" and getattr(self, "_market_down", False):
-                    ok_dir, dir_reason = False, (f"大盘日线向下({self._market_note}), 禁开多仓"
-                                                 f"(空单/深跌反转例外)")
-                elif (side == "long" and getattr(inp, "pos20", 0.0) <= -10
-                        and inp.daily_regime != "trend_up"):
-                    ok_dir, dir_reason = False, (
-                        f"中段下跌禁区(距20日高{inp.pos20:.1f}% 且日线{inp.daily_regime}, 非企稳深跌反转), "
-                        f"实证: 此类接刀 fwd5胜率仅16%")
-                elif (side == "long" and getattr(inp, "h1_regime", "") == "trend_down"
-                      and inp.dir_adx < 35):
-                    # 2026-09-23 BEUSDT教训: 4H刚过门槛(ADX25~35)但1H短线破位=接刀 → 拦;
-                    # 2026-09-24 体检放宽: 4H强趋势(ADX≥35)时1H回调可容忍(用户"顺势直接做, 不看位置")
-                    ok_dir, dir_reason = False, (
-                        f"1H短线逆势({inp.h1_regime})且4H力度不足(ADX{inp.dir_adx:.0f}<35), 暂不顺势进")
                 else:
-                    # 短期方向门控(2026-09-22 用户: 日线太慢) = 已收盘4H; 日线仅作深跌禁区背景
                     ok_dir, dir_reason = self.risk.validate_daily_direction(
                         inp.dir_regime, inp.dir_adx, side)
                 if not ok_dir:

@@ -25,10 +25,9 @@ max_notional_mult: 6.0       # 总名义(多+空合计) ≤ 账户净值 × 6  (
 max_positions_divisor: 10    # 兼容字段(实际仓数 by risk.py 净值×6÷每仓, 硬顶6)
 max_short_positions: 3       # 空头最大仓数(用户2026-09-23: 多开空单, 空单净盈利多单) — 升到3
 max_batches_per_symbol: 3    # 分批建仓上限(超市补货, 加仓不占标的名额)
-spy_drop_gate_pct: -3.0
-spy_intraday_drop_gate_pct: -2.5      # 实时戒备(2026-09-22 用户"大盘看实时"): SPY现价较已收盘日线收盘急跌>=2.5% -> 当日禁开新仓      # 天气门: SPY 24h 跌>3% → 当日禁开新仓
-spy_intraday_drop_gate_pct: -2.5  # 实时戒备(用户2026-09-22): SPY现价较已收盘日线收盘急跌≥2.5% → 当日禁开新仓
-market_down_adx: 25.0        # 大盘趋势门控: SPY日线ADX≥25且向下 → 禁开多仓(空单例外)      # 天气门: SPY 24h 跌超此值 → 当日禁开新仓
+spy_drop_gate_pct: -3.0               # 天气门: SPY 24h 跌超此值 → 当日禁开新仓
+spy_intraday_drop_gate_pct: -2.5      # 实时戒备: SPY现价较已收盘日线收盘急跌≥2.5% → 当日禁开新仓
+# market_down_adx: 已废弃(2026-09-24 用户: 去掉大盘日线门控, 短期不需要)
 # K线取量按周期需求定(非统一200): 5m=入场时机8h 1H=趋势10天 4H=中趋势50天 1D=方向权威(上限90) 1W=季节视角(上限13)
 kline_limits:
   5m: 100
