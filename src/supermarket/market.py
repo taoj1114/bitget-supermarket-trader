@@ -210,11 +210,13 @@ class MarketData:
             log.debug("1W 拉取失败(降级为空): %s", str(e)[:60])
 
         ind5 = compute_indicators(df5, primary=True)
-        ind1h = compute_indicators(df1h, primary=False)
-        # 短期方向权威 = 已收盘4H(用户2026-09-22: 日线太慢; 剔除进行中4H棒防边界抖动)
+        # 2026-09-24 用户: 以15m/1H为主 → 操作方向权威 = 已收盘1H(剔除进行中1H棒防边界抖动)
+        ind1h_done = df1h.iloc[:-1] if len(df1h) > 8 else df1h
+        ind1h = compute_indicators(ind1h_done, primary=True)
+        # 4H = 中趋势参考(不再是权威); 日线 = 背景(仅深跌禁区保护参考)
         df4h_done = df4h.iloc[:-1] if len(df4h) > 12 else df4h
         ind4h = compute_indicators(df4h_done, primary=True)
-        ind1d = compute_indicators(df1d_done, primary=True)  # 日线=背景, 指标全量(不主导短期)
+        ind1d = compute_indicators(df1d_done, primary=True)
 
         trend = trend_shape(df5)
         if not manage:
@@ -269,11 +271,10 @@ class MarketData:
                         bias_intraday = f" 盘中vs日线MA30 {(spyq_last/_ma30x-1)*100:+.1f}%"
             except Exception:
                 pass
-            market_env = (f"[{time.strftime('%m-%d %H:%M')} UTC] 大盘: "
+            market_env = (f"[{time.strftime('%m-%d %H:%M')} UTC] 大盘实时(2026-09-24 用户: 去掉大盘日线): "
                           f"SPY ${float(spyq.get('lastPr', 0) or 0):.2f} {chg(spyq):+.2f}% 24h"
                           f"{bias_intraday} | "
-                          f"QQQ ${float(qqqq.get('lastPr', 0) or 0):.2f} {chg(qqqq):+.2f}% 24h | "
-                          f"已收日线{_reg} ADX{_adx:.0f}(方向权威, 实时仅戒备/择时)")
+                          f"QQQ ${float(qqqq.get('lastPr', 0) or 0):.2f} {chg(qqqq):+.2f}% 24h")
         except Exception as e:
             log.debug("大盘环境获取失败: %s", str(e)[:60])
 
@@ -370,9 +371,9 @@ class MarketData:
             quote=quote,
             session=us_session(),
             ind_5m_line=render_ind(ind5, "5m(短线时机):"),
-            ind_1h_line=render_ind(ind1h, "1H(趋势):"),
-            ind_4h_line=render_ind(ind4h, "4H(已收盘, 短期方向权威):"),
-            ind_1d_line=render_ind(ind1d, "日线(背景, 长期视野):"),
+            ind_4h_line=render_ind(ind4h, "4H(参考, 中趋势):"),
+            ind_1h_line=render_ind(ind1h, "1H(已收盘, 操作方向权威):"),
+            ind_1d_line=render_ind(ind1d, "日线(背景, 仅深跌禁区参考):"),
             trend=trend,
             ohlc_1d=fmt_ohlc(df1d_done, 20),   # 背景(长期视野, 不主导)
             pos5d_pct=_pos5d(df1d_done),
@@ -388,12 +389,11 @@ class MarketData:
             lessons=lessons,
             daily_regime=ind1d.regime,
             daily_adx=ind1d.adx,
-            dir_regime=ind4h.regime,
-            dir_adx=ind4h.adx,
+            dir_regime=ind1h.regime,
+            dir_adx=ind1h.adx,
             h1_regime=ind1h.regime,
-            cycle_type=("上涨" if (ind4h.regime == "trend_up" and new_high_5d)
-                        else ("上涨" if ind4h.regime == "trend_up" else
-                              ("下跌" if ind4h.regime == "trend_down" else "震荡"))),
+            cycle_type=("上涨" if ind1h.regime == "trend_up" else
+                        ("下跌" if ind1h.regime == "trend_down" else "震荡")),  # 周期桶按1H(已收盘)
             deep_dip=deep_dip,
             current_holding=current_holding,
             market_env=(market_env + (" | " + extra_env) if extra_env else market_env),

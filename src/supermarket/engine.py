@@ -220,44 +220,21 @@ class SupermarketEngine:
         except Exception as e:
             log.debug("数据不足缓存写入失败: %s", str(e)[:50])
 
-    def _refresh_market_state(self) -> None:
-        """大盘状态(管仓防守 + 开仓门控共用)。
 
-        2026-09: SPY 已收日线 trend_down(ADX≥25) → 开仓禁多 + 持仓端收紧
-        (与大盘反向的持仓: 浮盈及时兑现、浮亏破结构即认错 —— 开仓与持仓对称)。
+    def _refresh_market_state(self) -> None:
+        """大盘状态(2026-09-24 用户: 去掉大盘日线, 短期不需要它)
+        —— 不再做日线级禁多门控, 只保留实时天气戒备(SPY 24h/盘中位置),
+        由扫描前的天气门处理(24h≤-3% 或盘中急跌≤-2.5% → 当日禁开新仓)。
         """
         self._market_down = False
         self._market_note = ""
         try:
-            mr = self.market.daily_regime("SPYUSDT")
-            if mr:
-                reg, madx = mr
-                self._market_note = f"SPY日线{reg}(ADX{madx:.0f})"
-                if reg == "trend_down" and madx >= self.cfg.market_down_adx:
-                    self._market_down = True
-                    log.warning("大盘趋势门控: %s → 禁开多仓 + 持仓端收紧(空单/深跌反转例外)",
-                                self._market_note)
-                    if not getattr(self, "_market_down_notified", False):
-                        self._market_down_notified = True
-                        try:
-                            from supermarket import notify
-                            notify.risk_event(f"大盘趋势门控: {self._market_note} → 禁开多仓, "
-                                              f"且多单应更积极兑现/认错")
-                        except Exception:
-                            pass
-                else:
-                    self._market_down_notified = False
+            spyq = self.bg.quote("SPYUSDT")
+            chg = float(spyq.get("changeUtc24h") or 0) * 100
+            last = float(spyq.get("lastPr", 0) or 0)
+            self._market_note = f"SPY ${last:.2f} ({chg:+.2f}% 24h)"
         except Exception as e:
-            # 2026-09-22 修复: 刷新失败 = 状态未知 → 保守禁多(绝不静默放行)。
-            # 此前失败只 debug 日志, _market_down 已被重置为 False → 门控静默失效,
-            # 实测 00:16 网络抖动期间在大盘 trend_down 下放行 TSLA@375.36/SPCX@155.46
-            # (分别买在5日区高位86%/70%)。现在: 拿不到大盘状态 = 按最坏假设(禁多)。
-            self._market_down = True
-            self._market_note = f"大盘未知(刷新失败 {str(e)[:40]}, 保守禁多)"
-            self._market_fail_count = getattr(self, "_market_fail_count", 0) + 1
-            log.warning("大盘状态刷新失败(%s) → 保守禁多(第%d次)", str(e)[:60],
-                        self._market_fail_count)
-
+            self._market_note = f"SPY 实时获取失败({str(e)[:40]})"
     def _ensure_protection(self) -> None:
         """保护自愈(实盘安全网): 裸仓补挂 TPSL + 策略单量不匹配时重挂覆盖全仓。
 
@@ -457,8 +434,8 @@ class SupermarketEngine:
             return c[1]
         try:
             from supermarket.market import klines_to_df, compute_indicators
-            df = klines_to_df(self.bg.klines(sym, "4H", 30))
-            done = df.iloc[:-1] if len(df) > 12 else df
+            df = klines_to_df(self.bg.klines(sym, "1H", 40))
+            done = df.iloc[:-1] if len(df) > 8 else df
             ind = compute_indicators(done, primary=True)
             r = "上涨" if ind.regime == "trend_up" else ("下跌" if ind.regime == "trend_down" else "震荡")
         except Exception:

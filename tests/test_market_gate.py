@@ -59,13 +59,13 @@ def test_aiinput_has_rs_and_pos_fields():
 
 
 def test_daily_direction_uses_closed_candles():
-    """短期方向权威=已收盘4H(2026-09-22 用户: 日线对短期太慢);
-    进行中的最后一根会致 regime 抖动(日线版曾致 SPCX 误平), 4H 同规则剔除。"""
+    """2026-09-24 用户: 以15m/1H为主 → 方向权威=已收盘1H(剔除进行中1H棒防边界抖动);
+    4H 降为中趋势参考, 日线=背景(仅深跌禁区参考)。"""
     src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "market.py").read_text()
-    assert "df4h_done" in src, "应剔除进行中的 4H 棒"
-    assert "dir_regime" in src and "dir_adx" in src, "方向权威字段(已收盘4H)缺失"
-    # 日线降为背景, 不再声明"定方向"
-    assert "日线(背景, 长期视野)" in src
+    assert "ind1h_done = df1h.iloc[:-1]" in src, "应剔除进行中的 1H 棒"
+    assert "dir_regime" in src and "dir_adx" in src, "方向权威字段缺失"
+    assert "1H(已收盘, 操作方向权威)" in src
+    assert "4H(参考, 中趋势)" in src and "日线(背景, 仅深跌禁区参考)" in src
 
 
 def test_trend_progress_fields():
@@ -140,15 +140,13 @@ def test_review_adopted_prompt_fixes():
 
 
 def test_market_refresh_failure_is_conservative():
-    """2026-09-22 修复: 大盘状态刷新失败 → 保守禁多(绝不静默放行)。
-    实测事故: 00:16 网络抖动 → SPY 刷新失败静默放行 → TSLA@375.36/SPCX@155.46
-    在大盘 trend_down 下被开多(买在5日区高位86%/70%)。"""
-    root = Path(__file__).resolve().parent.parent / "src" / "supermarket"
-    src = (root / "engine.py").read_text()
-    assert "保守禁多" in src, "刷新失败必须保守禁多"
-    assert "_market_down = True" in src, "失败分支必须置 True"
-
-
+    """2026-09-24 用户: 大盘日线门控已移除(短期不需要) — 不再日线级禁多;
+    实时天气戒备(24h≤-3%/盘中急跌≤-2.5%)仍由扫描前天气门独立把关(fail-safe 仍在天气门)。"""
+    mk = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "market.py").read_text()
+    assert "去掉大盘日线" in mk, "大盘日线应从输入移除"
+    eng = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "engine.py").read_text()
+    assert "不再做日线级禁多门控" in eng, "engine 不应再有大盘日线禁多"
+    assert "天气门" in eng and "盘中急跌" in eng, "实时天气戒备必须保留"
 def test_pos5d_chase_high_input():
     """2026-09-22: 5日区间位置注入 AI(追高识别); prompts 有贴顶负面清单。"""
     root = Path(__file__).resolve().parent.parent
