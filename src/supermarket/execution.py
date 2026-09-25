@@ -392,7 +392,12 @@ class RealExecutor:
                 if str(s.get("posSide")) == direction:
                     tpsl_ids.append(str(s.get("orderId", "")))
             if not tpsl_ids:
-                log.error("⚠️ %s 开仓后未发现 TPSL 策略单(订单%s), 请人工核查保护!", symbol, oid)
+                # 2026-09-25 TSLA裸仓事故: 开仓挂载失败必须立即补挂(等下一轮=15分钟裸奔,
+                # 且价破SL后止损单永远挂不上)。repair_protection 内含破位贴现实价/自动平仓兜底。
+                log.error("⚠️ %s 开仓后未发现 TPSL 策略单(订单%s) → 立即补挂保护!", symbol, oid)
+                ok = self.repair_protection(pos)
+                if not ok:
+                    log.error("❌ %s 开仓后 TPSL 补挂失败(已含平仓兜底尝试) → 人工核查!", symbol)
         except Exception as e:
             log.warning("TPSL 策略单查询失败 %s: %s", symbol, str(e)[:80])
         # 4) 本地记录(SL 只收紧不放宽)
@@ -540,8 +545,47 @@ class RealExecutor:
             self._save()
             return True
         except Exception as e:
-            log.error("❌ 保护补挂失败 %s: %s", pos.symbol, str(e)[:120])
-            self._alert("PROTECTION_REPAIR_FAIL", pos.symbol, str(e)[:150])
+            err = str(e)
+            log.error("❌ 保护补挂失败 %s: %s", pos.symbol, err[:120])
+            # 2026-09-25 TSLA裸仓事故修复: 补挂失败(如价已破SL被交易所拒) →
+            # 贴现实价重挂(止损=现价×(1∓0.5%)); 仍失败 → 自动市价平仓, 裸仓绝不裸奔。
+            try:
+                q = self.bg.quote(pos.symbol)
+                mark = float(q.get("lastPr", 0) or 0)
+            except Exception:
+                mark = 0.0
+            if mark > 0:
+                sl2 = mark * (0.995 if pos.direction == "long" else 1.005)
+                try:
+                    res2 = self.bg._request("POST", "/api/v3/trade/place-strategy-order", {
+                        "category": "USDT-FUTURES", "symbol": pos.symbol,
+                        "type": "tpsl", "qty": f"{pos.qty:.{qp}f}", "posSide": pos.direction,
+                        "stopLoss": f"{sl2:.{pp}f}", "slTriggerBy": "mark",
+                        "takeProfit": f"{tp:.{pp}f}", "tpTriggerBy": "mark",
+                    })
+                    self._alert("PROTECTION_REPAIRED_AT_MARKET", pos.symbol,
+                                f"破位贴现价重挂 SL={sl2:.2f}(现价{mark:.2f}) TP={tp:.2f} {res2}")
+                    log.warning("🔧 保护贴现价重挂 %s SL=%.2f(现价%.2f) TP=%.2f",
+                                pos.symbol, sl2, mark, tp)
+                    hh = self._state.setdefault("holdings", {}).setdefault(pos.symbol, {})
+                    hh.update({"sl": sl2, "tp": tp, "direction": pos.direction})
+                    self._save()
+                    return True
+                except Exception as e2:
+                    log.error("❌ 贴现实价重挂也失败 %s: %s → 自动市价平仓(裸仓不裸奔)",
+                              pos.symbol, str(e2)[:80])
+                    try:
+                        self.bg.v3_close_order(pos.symbol, pos.qty, pos.direction)
+                        self._alert("PROTECTION_CLOSED", pos.symbol,
+                                    f"保护补挂失败+贴现重挂失败, 已市价平仓止亏(防裸仓)")
+                        log.error("⛔ %s 已市价平仓(保护缺失兜底)", pos.symbol)
+                        return True
+                    except Exception as e3:
+                        self._alert("PROTECTION_CLOSED_FAIL", pos.symbol,
+                                    f"平仓兜底也失败!! 需人工介入: {str(e3)[:80]}")
+                        log.error("⛔⛔ %s 平仓兜底失败, 需人工介入: %s", pos.symbol, str(e3)[:80])
+                        return False
+            self._alert("PROTECTION_REPAIR_FAIL", pos.symbol, err[:150])
             return False
 
     def manage_tpsl(self, symbol: str, sl: float | None, tp: float | None) -> None:
