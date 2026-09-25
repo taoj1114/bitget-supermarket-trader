@@ -21,6 +21,7 @@ from supermarket.indicators import (
     klines_to_df,
     render_ind,
     reversal_kline,
+    reversal_short,
     trend_shape,
 )
 
@@ -115,6 +116,8 @@ class AIInput:
     struct_4h: str = ""          # 4H 价格结构(连续变化方向; 背景, 不可反着来)
     struct_1h: str = ""          # 1H 价格结构(操作主周期)
     struct_15m: str = ""         # 15m 价格结构(入场时机)
+    reversal: str = ""           # 反转信号(2026-09-25 用户: 反转后顺势; 程序检测的确认事实)
+    reversal_dir: str = ""       # bottom/top/"" (供方向门控放行反转单)
     weekly_line: str = ""        # 周线季节视角(仅13根, 季度方向参考)
 
 
@@ -247,6 +250,12 @@ class MarketData:
         ind1d = compute_indicators(df1d_done, primary=True)
 
         trend = trend_shape(df5)
+        # 反转确认(2026-09-25 用户: 反转后顺势 —— 买在反转启动位置, 不追中段)
+        rev_dir, rev_desc = reversal_short(df15m, "15m")
+        if not rev_dir:
+            rev_dir, rev_desc = reversal_short(df5, "5m")
+        reversal = (f"反转信号: {'底部' if rev_dir == 'bottom' else '顶部'}反转迹象 — {rev_desc}"
+                    if rev_dir else "反转信号: 无(未出现反转确认形态, 此时进=接刀)")
         if not manage:
             rev = reversal_kline(df4h, ind1h.adx)
             if rev:
@@ -400,6 +409,8 @@ class MarketData:
             # AI 只看 OHLC 原始数组(程序门控内部仍用 dir_regime/dir_adx, 不给AI看)
             ind_5m_line="", ind_4h_line="", ind_1h_line="", ind_1d_line="",
             trend=trend,
+            reversal=reversal,
+            reversal_dir=rev_dir,
             ohlc_1d="",                        # 2026-09-25 用户: 短期不需要日线 → 不渲染
             struct_4h=(lambda r: f"4H价格结构(背景, 连续变化不可反着来): {r[0]}"
                        f"(近8根高低点{('逐级抬高' if r[0]=='连续上行' else '逐级走低' if r[0]=='连续下行' else '交错')})")(_seq_trend(df4h, 8)),

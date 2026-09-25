@@ -653,6 +653,11 @@ class SupermarketEngine:
                 # 历史残留已清: 大盘日线禁多(_market_down)/日线中段下跌禁区(pos20)/1H双重拦截
                 if side == "long" and inp.deep_dip:
                     ok_dir, dir_reason = True, f"深跌反转信号例外放行({inp.deep_dip})"
+                elif side == "long" and getattr(inp, "reversal_dir", "") == "bottom":
+                    # 2026-09-25 用户: 反转后顺势 —— 底部反转确认时, 1H 往往还没转, 必须放行
+                    ok_dir, dir_reason = True, "底部反转后顺势做多放行(反转确认, 不等1H转向)"
+                elif side == "short" and getattr(inp, "reversal_dir", "") == "top":
+                    ok_dir, dir_reason = True, "顶部反转后顺势做空放行(反转确认)"
                 else:
                     ok_dir, dir_reason = self.risk.validate_daily_direction(
                         inp.dir_regime, inp.dir_adx, side)

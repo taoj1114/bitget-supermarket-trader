@@ -181,8 +181,8 @@ def test_short_line_confluence_gate():
     pr = (root / "src" / "supermarket" / "prompts.py").read_text()
     assert "1H短线逆势" not in eng, "1H 双重拦截应已移除(方向权威本身就是1H)"
     assert "dir_regime=ind1h.regime" in mk, "1H(已收盘) 应为方向权威"
-    assert "位置信息(距20日高/5日区间/乖离)不作开仓拒绝依据" in pr
-    assert "只做顺势" in pr and "不要再做回踩" in pr
+    assert "不作拒绝依据" in pr and "反转后顺势" in pr
+    assert "反转信号" in pr and "底部反转迹象" in pr
     assert "周线/日线背景/中长期上涨周期" in pr
 
 def test_hot_pool_cycle_buckets():

@@ -361,3 +361,56 @@ def render_ind(ind: IndicatorSet, label: str, extra: str = "") -> str:
     if extra:
         parts.append(extra)
     return f"{label} " + " ".join(parts)
+
+def reversal_short(df: pd.DataFrame, level: str = "15m") -> tuple[str, str]:
+    """短周期反转确认(2026-09-25 用户: 反转后顺势 —— 买在反转启动位置, 不追趋势中段)。
+
+    在"连续下行/上行"之后, 检测最近已收盘 1-2 根 K 线的反转形态:
+      底部反转: 长下影阳线(下影≥实体2倍) / 收盘收复前2根高点 / 放量长阳吞没前根阴线
+                —— 且不再创新低(近3根低点 ≥ 更早3根最低点)
+      顶部反转: 长上影阴线 / 收盘跌破前2根低点 / 放量长阴吞没前根阳线
+                —— 且不再创新高
+    返回 ("bottom"/"top"/"", 中文依据描述)。纯价格/成交量, 无指标。
+    """
+    try:
+        if df is None or len(df) < 8:
+            return ("", "")
+        d = df.iloc[:-1] if len(df) > 6 else df      # 用已收盘, 防进行中抖动
+        o = [float(x) for x in d["open"].tolist()]
+        h = [float(x) for x in d["high"].tolist()]
+        l = [float(x) for x in d["low"].tolist()]
+        c = [float(x) for x in d["close"].tolist()]
+        v = [float(x) for x in d.get("volume", pd.Series([0.0] * len(c))).tolist()]
+        if len(c) < 8:
+            return ("", "")
+        # 前置趋势: 前 6 根(不含最近2根)是否连续下行/上行
+        pre_h, pre_l = h[-8:-2], l[-8:-2]
+        down_seq = sum(1 for i in range(1, len(pre_l)) if pre_l[i] <= pre_l[i - 1]) >= len(pre_l) - 3
+        up_seq = sum(1 for i in range(1, len(pre_h)) if pre_h[i] >= pre_h[i - 1]) >= len(pre_h) - 3
+        body = abs(c[-1] - o[-1])
+        rng = max(h[-1] - l[-1], 1e-9)
+        lower_wick = (min(o[-1], c[-1]) - l[-1]) / rng
+        upper_wick = (h[-1] - max(o[-1], c[-1])) / rng
+        avg_v = sum(v[-6:-1]) / max(1, len(v[-6:-1])) if len(v) >= 6 else 0.0
+        vol_up = avg_v > 0 and v[-1] >= avg_v * 1.3
+        no_new_low = min(l[-3:]) >= min(l[-6:-3]) * 0.999
+        no_new_high = max(h[-3:]) <= max(h[-6:-3]) * 1.001
+        # 底部反转
+        if down_seq and no_new_low:
+            if c[-1] > o[-1] and lower_wick >= 0.4:
+                return ("bottom", f"{level}长下影阳线(下影占比{lower_wick:.0%}) + 不再创新低")
+            if c[-1] > max(h[-3:-1]):
+                return ("bottom", f"{level}收盘收复前2根高点 + 不再创新低")
+            if c[-1] > o[-1] and body > 0 and c[-1] > o[-2] and vol_up:
+                return ("bottom", f"{level}放量长阳吞没前根阴线(量{ v[-1]/max(avg_v,1e-9):.1f}倍)")
+        # 顶部反转
+        if up_seq and no_new_high:
+            if c[-1] < o[-1] and upper_wick >= 0.4:
+                return ("top", f"{level}长上影阴线(上影占比{upper_wick:.0%}) + 不再创新高")
+            if c[-1] < min(l[-3:-1]):
+                return ("top", f"{level}收盘跌破前2根低点 + 不再创新高")
+            if c[-1] < o[-1] and body > 0 and c[-1] < o[-2] and vol_up:
+                return ("top", f"{level}放量长阴吞没前根阳线(量{v[-1]/max(avg_v,1e-9):.1f}倍)")
+        return ("", "")
+    except Exception:
+        return ("", "")
