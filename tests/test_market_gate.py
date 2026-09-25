@@ -64,8 +64,9 @@ def test_daily_direction_uses_closed_candles():
     src = (Path(__file__).resolve().parent.parent / "src" / "supermarket" / "market.py").read_text()
     assert "ind1h_done = df1h.iloc[:-1]" in src, "应剔除进行中的 1H 棒"
     assert "dir_regime" in src and "dir_adx" in src, "方向权威字段缺失"
-    assert "1H(已收盘, 操作方向权威)" in src
-    assert "4H(参考, 中趋势)" in src and "日线(背景, 仅深跌禁区参考)" in src
+    assert "dir_regime=ind1h.regime" in src, "1H(已收盘) 应为方向权威字段来源"
+    assert 'ind_1h_line=""' in src, "2026-09-25 用户: 指标行应停止渲染(只看价格)"
+    assert "ohlc_4h=" in src and "ohlc_1d=" in src, "OHLC 数组保留(4H参考/日线背景)"
 
 
 def test_trend_progress_fields():
@@ -134,7 +135,7 @@ def test_no_judgmental_labels_in_input():
 def test_review_adopted_prompt_fixes():
     """采纳的三项提示词改进: 门控短路优先级 / 做空四段式 / 深跌企稳量化门槛。"""
     from supermarket.prompts import SYSTEM_OPEN
-    assert "执行优先级" in SYSTEM_OPEN and "直接输出 HOLD" in SYSTEM_OPEN
+    assert "执行优先级" in SYSTEM_OPEN and "价格行为" in SYSTEM_OPEN
     assert "距20日低+x%" in SYSTEM_OPEN, "缺做空四段式模板"
     assert "近 3 日未创新低" in SYSTEM_OPEN, "深跌反转缺量化企稳门槛"
 
@@ -200,4 +201,4 @@ def test_short_operation_cycle_1h_15m():
     assert "_mdf = df1h.iloc[:-1]" in mk, "动量应基于已收盘1H"
     pr = (root / "src" / "supermarket" / "prompts.py").read_text()
     assert "操作周期" in pr and "1H/15m" in pr, "操作主周期=1H/15m 应写入提示词"
-    assert "动量/RSI/结构在这些级别上判断" in pr
+    assert "动量/结构在这些级别上判断" in pr

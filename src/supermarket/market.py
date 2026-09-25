@@ -370,10 +370,9 @@ class MarketData:
             symbol=symbol,
             quote=quote,
             session=us_session(),
-            ind_5m_line=render_ind(ind5, "5m(短线时机):"),
-            ind_4h_line=render_ind(ind4h, "4H(参考, 中趋势):"),
-            ind_1h_line=render_ind(ind1h, "1H(已收盘, 操作方向权威):"),
-            ind_1d_line=render_ind(ind1d, "日线(背景, 仅深跌禁区参考):"),
+            # 2026-09-25 用户: "不要看那些指标, 看价格随时间的变化" → 指标行不再渲染;
+            # AI 只看 OHLC 原始数组(程序门控内部仍用 dir_regime/dir_adx, 不给AI看)
+            ind_5m_line="", ind_4h_line="", ind_1h_line="", ind_1d_line="",
             trend=trend,
             ohlc_1d=fmt_ohlc(df1d_done, 20),   # 背景(长期视野, 不主导)
             pos5d_pct=_pos5d(df1d_done),

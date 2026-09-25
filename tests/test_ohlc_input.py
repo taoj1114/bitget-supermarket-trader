@@ -38,7 +38,10 @@ def test_ohlc_in_open_prompt_and_lean_indicators():
     m1 = re.search(r"4H OHLC\(近20根[^)]*\): (.*)", pr)
     assert m1 and len(m1.group(1).split(", ")) >= 18, "4H OHLC根数不足"
     assert pr.find("4H OHLC") < pr.find("日线OHLC"), "4H(权威)应排在日线(背景)之前"
-    assert "1H(已收盘, 操作方向权威)" in pr
+    assert "1H OHLC" in pr, "1H 价格数组应存在(AI 的判断依据是价格)"
+    # 指标行(渲染格式如 "1H(已收盘, 操作方向权威): RSI60 MA10 ...")应已从输入移除
+    assert "1H(已收盘, 操作方向权威)" not in pr and "5m(短线时机)" not in pr, \
+        "指标行应已移除(2026-09-25 用户: 不要看指标, 只看价格)"
     # 指标行瘦身: 无量比/MACD/BB
     for ln in (inp.ind_1d_line, inp.ind_4h_line, inp.ind_1h_line, inp.ind_5m_line):
         assert "量比" not in ln and "MACD" not in ln and "BB" not in ln, ln[:80]
