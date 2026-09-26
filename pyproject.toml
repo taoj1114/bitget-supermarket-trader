@@ -1,7 +1,7 @@
 [project]
 name = "bitget-supermarket-trader"
 version = "0.1.0"
-description = "Bitget US stock perpetual supermarket-style AI trader (crossed margin, 20x, $2/pos)"
+description = "AI-native short-term trader for Bitget US-stock perpetuals (reversal-then-trend entry; AI decides everything, code only enforces risk and safety)"
 requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.27",
