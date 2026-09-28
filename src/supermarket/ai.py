@@ -273,20 +273,39 @@ class OpenCodeProvider(LLMProvider):
             try:
                 with httpx.Client(timeout=httpx.Timeout(self.timeout_s, connect=10.0)) as client:
                     resp = client.post(url, json=payload, headers=headers)
-                if resp.status_code >= 400 and resp.status_code < 500:
-                    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:120]}")
-                resp.raise_for_status()
-                data = resp.json()
-                content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
-                if not content:
-                    raise RuntimeError("empty content")
-                self._record(True)
-                return content
-            except Exception as e:  # 5xx/网络/超时 → 重试
+            except Exception as e:  # 网络/超时 → 可重试
                 last_err = e
-                log.warning("AI 调用失败(第%d次): %s", attempt + 1, str(e)[:120])
+                log.warning('AI 网络失败(第%d次, model=%s, timeout=%.0fs): %s',
+                            attempt + 1, self.model, self.timeout_s, str(e)[:120])
+                continue
+            if 400 <= resp.status_code < 500:
+                # 4xx = 密钥/额度/参数问题, 重试无意义且会拖慢整轮扫描 → 立即失败(铁律: 4xx 不重试)
+                self._record(False)
+                raise RuntimeError('AI 请求被拒(HTTP %s, 4xx 不重试, model=%s): %s'
+                                   % (resp.status_code, self.model, resp.text[:120]))
+            if resp.status_code >= 500:
+                last_err = RuntimeError('HTTP %s: %s' % (resp.status_code, resp.text[:120]))
+                log.warning('AI 服务端失败(第%d次, model=%s): %s',
+                            attempt + 1, self.model, str(last_err)[:120])
+                continue
+            try:
+                data = resp.json()
+            except Exception as e:  # 非 JSON 响应 → 可重试
+                last_err = e
+                log.warning('AI 响应非 JSON(第%d次, model=%s): %s',
+                            attempt + 1, self.model, str(e)[:120])
+                continue
+            content = (data.get('choices') or [{}])[0].get('message', {}).get('content', '')
+            if not content:
+                # 思考型模型额度被 reasoning 吃光时的典型表现, 值得单独留痕
+                last_err = RuntimeError('empty content')
+                log.warning('AI 空响应(第%d次, model=%s): %s',
+                            attempt + 1, self.model, str(last_err)[:120])
+                continue
+            self._record(True)
+            return content
         self._record(False)
-        raise RuntimeError(f"AI 调用最终失败: {last_err}")
+        raise RuntimeError('AI 调用最终失败: %s' % last_err)
 
     def decide_open(self, system: str, prompt: str) -> OpenDecision:
         try:
@@ -307,8 +326,12 @@ def build_provider(cfg) -> LLMProvider:
     """按配置构建 provider: LLM 未配置 → FallbackHOLD。"""
     llm = cfg.llm
     if llm.ready:
+        # 思考型模型(deepseek-v4.1-flash)单轮实测约 58s; read timeout 低于该量级会让每次
+        # 决策必然超时 → 全部静默降级 HOLD(2026-09-28 实盘故障根因)。config.py 默认值仍是
+        # 45.0 且不可改, 故在此设下限, 防止 .env/config.yaml 漂移后故障复现。
+        timeout_s = max(float(llm.timeout_s or 0.0), 120.0)
         return OpenCodeProvider(llm.base_url, llm.api_key, llm.model,
                                 llm.temperature, llm.max_tokens,
-                                llm.timeout_s, llm.max_retries,
+                                timeout_s, llm.max_retries,
                                 llm.circuit_failures, llm.circuit_pause_s)
     return FallbackHOLDProvider()
