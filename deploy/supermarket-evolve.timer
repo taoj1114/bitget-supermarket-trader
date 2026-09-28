@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily AI code evolution (09:00 CST - after self-tuning at 08:40)
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

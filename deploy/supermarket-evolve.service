@@ -1,0 +1,13 @@
+[Unit]
+Description=Bitget Supermarket Trader - AI Code Evolution (self-fix bugs / add features, guarded)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/workspace/bitget-supermarket-trader
+EnvironmentFile=/root/workspace/bitget-supermarket-trader/.env
+ExecStart=/root/workspace/bitget-supermarket-trader/.venv/bin/python -m supermarket.code_evolve
+StandardOutput=journal
+StandardError=journal
+# 代码改动 + 重启服务需要的时间较长
+TimeoutStartSec=3600

@@ -61,7 +61,7 @@ llm:
   model: ${LLM_MODEL_FLASH}
   temperature: 0.3
   max_tokens: 16000  # deepseek-v4.1-flash 为思考型(实测简单问题 reasoning 137 tokens, 正文仅2): 额度太小 → reasoning吃光 → content为空; 2026-09-25 提到16000
-  timeout_s: 45
+  timeout_s: 120  # 2026-09-29: deepseek-v4.1-flash 为思考型, 实测单轮决策 57.8s, 原 45s 必然超时→降级HOLD
   max_retries: 3            # opencode网关并发高时空响应频繁(实测27%), 增多重试保决策覆盖
   circuit_failures: 5
   circuit_pause_s: 300

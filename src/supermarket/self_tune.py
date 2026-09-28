@@ -157,13 +157,20 @@ def collect_evidence(memory: Any, recent_n: int = 15) -> dict[str, Any]:
                 "avg": round(pnl / n, 4)}
 
     groups: dict[str, dict[str, Any]] = {}
+    def _dim(key: str):
+        """缺失字段 = 该记录产生于留痕功能上线前(旧记录), 与真正的"未知"区分开。"""
+        def fn(d: dict) -> str:
+            v = (d.get("params") or {}).get(key)
+            return v if v else "旧记录(未留痕)"
+        return fn
+
     dims = {
-        "反转类型": lambda d: (d.get("params") or {}).get("reversal") or "未知",
-        "周期桶": lambda d: (d.get("params") or {}).get("cycle") or "未知",
+        "反转类型": _dim("reversal"),
+        "周期桶": _dim("cycle"),
         "方向": lambda d: "多" if (d.get("action") == "BUY") else "空",
         "时段": lambda d: d.get("session") or "未知",
-        "1H结构": lambda d: (d.get("params") or {}).get("struct_1h") or "未知",
-        "动量": lambda d: (d.get("params") or {}).get("momentum") or "未知",
+        "1H结构": _dim("struct_1h"),
+        "动量": _dim("momentum"),
         "持有时间": lambda d: _hold_bucket(d),
     }
     for name, fn in dims.items():
