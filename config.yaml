@@ -60,7 +60,7 @@ llm:
   api_key: ${LLM_API_KEY}
   model: ${LLM_MODEL_FLASH}
   temperature: 0.3
-  max_tokens: 6000  # mimo-v2.5 思考型模型: reasoning token 本身就需 1200+, 原1200导致content截断为空→empty content(2026-09-17修复)
+  max_tokens: 16000  # deepseek-v4.1-flash 为思考型(实测简单问题 reasoning 137 tokens, 正文仅2): 额度太小 → reasoning吃光 → content为空; 2026-09-25 提到16000
   timeout_s: 45
   max_retries: 3            # opencode网关并发高时空响应频繁(实测27%), 增多重试保决策覆盖
   circuit_failures: 5
