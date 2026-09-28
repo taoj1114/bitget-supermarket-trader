@@ -709,7 +709,13 @@ class SupermarketEngine:
                     sym, action_label, pos.avg_entry, float(params["stop_loss"]),
                     float(params["take_profit"]), decision.reason, session,
                     params={"notional": params["notional"], "leverage": params["leverage"],
-                            "direction": side})
+                            "direction": side,
+                            # 2026-09-29: 决策特征留痕 → AI 自迭代(self_tune)的统计证据
+                            "reversal": getattr(inp, "reversal_dir", "") or "none",
+                            "cycle": getattr(inp, "cycle_type", ""),
+                            "struct_1h": getattr(inp, "struct_1h", "").split(":")[-1].split("(")[0][:12],
+                            "momentum": getattr(inp, "momentum_state", ""),
+                            "margin_usd": decision.margin_usd})
                 log.info("✅ %s %s @$%.4f SL=%.2f TP=%.2f RR=%.2f | %s",
                          "开多" if side == "long" else "开空", sym, pos.avg_entry,
                          params["stop_loss"], params["take_profit"], params["rr"],
@@ -786,6 +792,12 @@ def main() -> None:
     # 归一化: live 视为 real(service 文件用 --mode live; 只认 "real" 会让实盘跑成纸面)
     if str(cfg.mode).lower() in ("live", "real"):
         cfg.mode = "real"
+    # AI 自迭代: 应用白名单自调参数(§ self_tune; 范围内钳制, 可回滚)
+    try:
+        from supermarket.self_tune import apply_tuned_overrides
+        apply_tuned_overrides(cfg)
+    except Exception as _e:
+        log.warning("自调参数应用失败(用默认值继续): %s", str(_e)[:80])
     if args.interval:
         cfg.scan_interval = args.interval
 

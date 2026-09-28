@@ -460,3 +460,32 @@ def build_manage_prompt(inp: "AIInput", pos: dict[str, Any]) -> str:
                  "③ 盈利兑现还是拿住 ④ 亏损是'正常回调可等回涨'还是'买错要认错' ⑤ 资金费率/时间成本")
     lines.append("判断完毕直接输出JSON。")
     return "\n".join(lines)
+
+# ---------------- AI 自学习经验区(2026-09-29 自迭代) ----------------
+def _learned_rules_block() -> str:
+    """读取 self_tune 维护的经验条目, 追加到开仓/管仓系统提示词末尾。
+
+    这一区是 AI 唯一的"自我修改"入口: 由复盘 AI 提案 + 程序护栏校验后写入,
+    可被自动回滚(效果变差时)。与上文冲突时以本区为准(它是最新的事实结论)。
+    """
+    import os
+    from pathlib import Path
+    try:
+        path = Path(os.environ.get("SUPERMARKET_RULES", "state/live/learned_rules.md"))
+        if not path.exists():
+            return ""
+        rules = [ln.strip() for ln in path.read_text().splitlines()
+                 if ln.strip() and not ln.strip().startswith("#")]
+        if not rules:
+            return ""
+        body = "\n".join(f"- {r}" for r in rules[:20])
+        return ("\n\n**自学习经验(由复盘 AI 提案 + 程序校验写入, 可被回滚; "
+                "与上文冲突时以本区为准)**\n" + body)
+    except Exception:
+        return ""
+
+
+_LEARNED = _learned_rules_block()
+if _LEARNED:
+    SYSTEM_OPEN = SYSTEM_OPEN + _LEARNED
+    SYSTEM_MANAGE = SYSTEM_MANAGE + _LEARNED

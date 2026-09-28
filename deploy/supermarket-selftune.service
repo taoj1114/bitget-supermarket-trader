@@ -1,0 +1,11 @@
+[Unit]
+Description=Bitget Supermarket Trader - AI Self-Tuning (daily review & iterate)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/workspace/bitget-supermarket-trader
+EnvironmentFile=/root/workspace/bitget-supermarket-trader/.env
+ExecStart=/root/workspace/bitget-supermarket-trader/.venv/bin/python -m supermarket.self_tune
+StandardOutput=journal
+StandardError=journal

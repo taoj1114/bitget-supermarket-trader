@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily AI self-tuning (08:40 CST - after the 06:00 daily report data)
+
+[Timer]
+OnCalendar=*-*-* 08:40:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
