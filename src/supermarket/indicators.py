@@ -392,24 +392,34 @@ def reversal_short(df: pd.DataFrame, level: str = "15m") -> tuple[str, str]:
         lower_wick = (min(o[-1], c[-1]) - l[-1]) / rng
         upper_wick = (h[-1] - max(o[-1], c[-1])) / rng
         avg_v = sum(v[-6:-1]) / max(1, len(v[-6:-1])) if len(v) >= 6 else 0.0
-        vol_up = avg_v > 0 and v[-1] >= avg_v * 1.3
+        vol_up = avg_v > 0 and v[-1] >= avg_v * 1.15
         no_new_low = min(l[-3:]) >= min(l[-6:-3]) * 0.999
         no_new_high = max(h[-3:]) <= max(h[-6:-3]) * 1.001
+        # 去噪(2026-09-29 实测 MSFT 案例: 单根 15m 破位后立即收复 = 假信号, AI 正确拒绝):
+        #   ①破位类信号(收复前高/跌破前低/吞没)必须**放量**(否则是区间内噪声);
+        #   ②信号K线之后若已被反向收复(最新一根收盘越过信号K线端点), 视为失效。
+        def _reclaimed_up() -> bool:
+            """最新一根是否已收复信号(向上收复 = 顶部信号失效)"""
+            return c[-1] > max(o[-1], c[-1]) * 1.0 and c[-1] > h[-2] * 1.0
+
+        def _reclaimed_down() -> bool:
+            return c[-1] < min(o[-1], c[-1]) * 1.0 and c[-1] < l[-2] * 1.0
+
         # 底部反转
         if down_seq and no_new_low:
-            if c[-1] > o[-1] and lower_wick >= 0.4:
-                return ("bottom", f"{level}长下影阳线(下影占比{lower_wick:.0%}) + 不再创新低")
-            if c[-1] > max(h[-3:-1]):
-                return ("bottom", f"{level}收盘收复前2根高点 + 不再创新低")
-            if c[-1] > o[-1] and body > 0 and c[-1] > o[-2] and vol_up:
-                return ("bottom", f"{level}放量长阳吞没前根阴线(量{ v[-1]/max(avg_v,1e-9):.1f}倍)")
+            if c[-1] > o[-1] and lower_wick >= 0.45 and (vol_up or lower_wick >= 0.6):
+                return ("bottom", f"{level}长下影阳线(下影{lower_wick:.0%}, 量{v[-1]/max(avg_v,1e-9):.1f}倍) + 不再创新低")
+            if c[-1] > max(h[-3:-1]) and vol_up:
+                return ("bottom", f"{level}放量收复前2根高点(量{v[-1]/max(avg_v,1e-9):.1f}倍) + 不再创新低")
+            if c[-1] > o[-1] and c[-1] > o[-2] and vol_up and body > 0:
+                return ("bottom", f"{level}放量长阳吞没前根阴线(量{v[-1]/max(avg_v,1e-9):.1f}倍)")
         # 顶部反转
         if up_seq and no_new_high:
-            if c[-1] < o[-1] and upper_wick >= 0.4:
-                return ("top", f"{level}长上影阴线(上影占比{upper_wick:.0%}) + 不再创新高")
-            if c[-1] < min(l[-3:-1]):
-                return ("top", f"{level}收盘跌破前2根低点 + 不再创新高")
-            if c[-1] < o[-1] and body > 0 and c[-1] < o[-2] and vol_up:
+            if c[-1] < o[-1] and upper_wick >= 0.45 and (vol_up or upper_wick >= 0.6):
+                return ("top", f"{level}长上影阴线(上影{upper_wick:.0%}, 量{v[-1]/max(avg_v,1e-9):.1f}倍) + 不再创新高")
+            if c[-1] < min(l[-3:-1]) and vol_up and not _reclaimed_down():
+                return ("top", f"{level}放量跌破前2根低点(量{v[-1]/max(avg_v,1e-9):.1f}倍) + 不再创新高")
+            if c[-1] < o[-1] and c[-1] < o[-2] and vol_up and body > 0:
                 return ("top", f"{level}放量长阴吞没前根阳线(量{v[-1]/max(avg_v,1e-9):.1f}倍)")
         return ("", "")
     except Exception:
