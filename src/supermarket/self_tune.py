@@ -32,6 +32,24 @@ RULES_FILE = STATE_DIR / "learned_rules.md"
 PARAMS_FILE = STATE_DIR / "tuned_params.json"
 LOG_FILE = STATE_DIR / "tuning_log.json"
 
+# 短期策略起点(2026-09-22 短期化 v3.0: SL 1.5~5% / 时间止损 48h / TP 2~3%)
+# 早于此的交易属中期时代(宽止损、持数日), 其统计会污染短期结论 → 一律隔离(不删档, 仅供审计)
+_SHORT_TERM_SINCE_DEFAULT = __import__("datetime").datetime(
+    2026, 9, 22, 0, 0, tzinfo=__import__("datetime").timezone(
+        __import__("datetime").timedelta(hours=8))).timestamp()
+
+
+def short_term_since() -> float:
+    """短期样本起点(可用 state/live/short_term_since.json 覆盖: {"ts": <epoch>})。"""
+    try:
+        f = STATE_DIR / "short_term_since.json"
+        if f.exists():
+            return float(json.loads(f.read_text()).get("ts") or _SHORT_TERM_SINCE_DEFAULT)
+    except Exception:
+        pass
+    return _SHORT_TERM_SINCE_DEFAULT
+
+
 MAX_RULES = 20
 MAX_RULE_CHARS = 200
 MAX_CHANGES_PER_RUN = 3
@@ -145,9 +163,15 @@ def apply_tuned_overrides(cfg: Any) -> dict[str, float]:
 # ---------------- 证据收集 ----------------
 def collect_evidence(memory: Any, recent_n: int = 15) -> dict[str, Any]:
     """从决策账本汇总: 总览 + 按维度分组(反转类型/周期桶/方向/时段/持有时间) + 最近明细。"""
-    ds = [d for d in getattr(memory, "decisions", []) if d.get("outcome") == "closed" and d.get("pnl") is not None]
+    since = short_term_since()
+    all_closed = [d for d in getattr(memory, "decisions", [])
+                  if d.get("outcome") == "closed" and d.get("pnl") is not None]
+    # 2026-09-29 用户: 隔离中期时代样本(避免污染短期结论)
+    ds = [d for d in all_closed if float(d.get("ts") or 0) >= since]
+    excluded = len(all_closed) - len(ds)
     if not ds:
-        return {"total": 0, "groups": {}, "recent": [], "falsified": _load_json(LOG_FILE, {}).get("falsified", [])}
+        return {"total": 0, "groups": {}, "recent": [], "excluded_legacy": excluded,
+                "falsified": _load_json(LOG_FILE, {}).get("falsified", [])}
 
     def _stat(items: list[dict]) -> dict[str, Any]:
         n = len(items)
@@ -194,6 +218,8 @@ def collect_evidence(memory: Any, recent_n: int = 15) -> dict[str, Any]:
         })
     log = _load_json(LOG_FILE, {})
     return {"total": len(ds), "overview": _stat(ds), "groups": groups, "recent": recent,
+            "excluded_legacy": excluded,
+            "since": time.strftime("%Y-%m-%d %H:%M", time.localtime(since)),
             "falsified": (log.get("falsified") or [])[-MAX_RULES_DISPLAY:]}
 
 
@@ -221,9 +247,11 @@ def render_tuner_prompt(ev: dict[str, Any], rules: list[str], params: dict[str, 
     lines += [f"- {k} = {v}" for k, v in params.items()] or ["(空, 使用默认值)"]
     lines += ["", "## 3. 已证伪过的调整方向(不许重复提)"]
     lines += [f"- {x}" for x in (ev.get("falsified") or [])] or ["(无)"]
-    lines += ["", "## 4. 成交统计(全部已平仓)"]
+    lines += ["", "## 4. 成交统计(仅短期策略样本)"]
     ov = ev.get("overview") or {}
     lines += [f"总览: {ev.get('total', 0)} 笔 | 胜率 {ov.get('winrate')}% | 累计 {ov.get('pnl')} | 平均 {ov.get('avg')}"]
+    if ev.get("excluded_legacy"):
+        lines += [f"(已隔离 {ev['excluded_legacy']} 笔中期时代样本: 起算自 {ev.get('since')})"]
     for dim, buckets in (ev.get("groups") or {}).items():
         lines.append(f"\n[{dim}]")
         for k, st in sorted(buckets.items(), key=lambda kv: -kv[1]["n"]):

@@ -104,10 +104,31 @@ class AIMemory:
     def closed_decisions(self) -> list[dict]:
         return [d for d in self.decisions if d.get("outcome") not in (None, "open")]
 
+    def _short_term_since(self) -> float:
+        """短期策略样本起点(默认 2026-09-22 00:00 CST = 短期化 v3.0 上线;
+        可用 state/live/short_term_since.json 里的 {"ts": <epoch>} 覆盖)。"""
+        import datetime as _dt
+        default = _dt.datetime(2026, 9, 22, tzinfo=_dt.timezone(_dt.timedelta(hours=8))).timestamp()
+        try:
+            f = Path(self._file).parent / "short_term_since.json"
+            if f.exists():
+                v = float(json.loads(f.read_text()).get("ts") or 0)
+                return v if v > 0 else default
+        except Exception:
+            pass
+        return default
+
     def get_symbol_history(self, symbol: str, limit: int = 3) -> str:
-        """该股已平仓结果(防锚定: 只注入 outcome 已定的)。"""
+        """该股已平仓结果(防锚定: 只注入 outcome 已定的)。
+
+        2026-09-29 用户: 只给**短期策略时代**的样本 —— 中期时代的记录(宽止损/持数日)
+        与当前策略不同源, 用来"参考"会误导短期决策, 故一律隔离(不删档, 仅不入 AI 输入)。
+        起点默认 2026-09-22(短期化 v3.0 上线), 可用 state/live/short_term_since.json 覆盖。
+        """
+        since = self._short_term_since()
         rows = [d for d in reversed(self.decisions)
-                if d["symbol"] == symbol and d.get("outcome") is not None][:limit]
+                if d["symbol"] == symbol and d.get("outcome") is not None
+                and float(d.get("ts") or 0) >= since][:limit]
         if not rows:
             return ""
         lines = []

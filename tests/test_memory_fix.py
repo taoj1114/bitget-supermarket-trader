@@ -37,9 +37,13 @@ def test_stats_tolerates_pnl_none():
 
 
 def test_symbol_history_tolerates_pnl_none():
-    """get_symbol_history 渲染 pnl=None 不得崩溃(管仓注入路径)。"""
+    """get_symbol_history 渲染 pnl=None 不得崩溃(管仓注入路径)。
+
+    注意 ts 用当期: 2026-09-22 起的短期样本才会进入历史(中期样本已隔离, 见 short_term_since)。
+    """
+    import time as _t
     recs = [{"symbol": "A", "action": "BUY", "entry": 1.0, "outcome": "closed",
-             "pnl": None, "ts": 1789400000, "reason": "x" * 60}]
+             "pnl": None, "ts": int(_t.time()), "reason": "x" * 60}]
     mem = make_mem(recs)
     h = mem.get_symbol_history("A")
     assert isinstance(h, str) and "pnl=$" in h
